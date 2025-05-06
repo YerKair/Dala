@@ -1,0 +1,990 @@
+import React, { useState, useEffect, useRef } from "react";
+import {
+  StyleSheet,
+  View,
+  Text,
+  TouchableOpacity,
+  SafeAreaView,
+  Image,
+  StatusBar,
+  Dimensions,
+  Alert,
+  ActivityIndicator,
+  Animated,
+  NativeModules,
+} from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
+import {
+  Ionicons,
+  FontAwesome5,
+  Feather,
+  MaterialIcons,
+} from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import MapView, { Marker, Polyline } from "react-native-maps";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Order, OrderService } from "../../../services/OrderService";
+import { calculateEstimatedDeliveryTime } from "../utils/helpers";
+import { useAuth } from "../../../auth/AuthContext";
+import * as Location from "expo-location";
+
+const { width, height } = Dimensions.get("window");
+
+interface DriverInfo {
+  id: string;
+  name: string;
+  photoUrl: string | null;
+  rating: number;
+  vehicleInfo: string;
+  licensePlate: string;
+  phone: string;
+}
+
+interface ExtendedOrder extends Order {
+  totalAmount?: number;
+}
+
+export default function DeliveryTrackingPage() {
+  const insets = useSafeAreaInsets();
+  const { isAuthenticated } = useAuth();
+  const mapRef = useRef<MapView>(null);
+
+  const params = useLocalSearchParams();
+  const {
+    orderId,
+    fromAddress,
+    toAddress,
+    fromLat,
+    fromLng,
+    toLat,
+    toLng,
+    customerName,
+  } = params;
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [order, setOrder] = useState<ExtendedOrder | null>(null);
+  const [estimatedDeliveryTime, setEstimatedDeliveryTime] =
+    useState("15-20 min");
+  const [deliveryStatus, setDeliveryStatus] = useState<
+    "preparing" | "pickup" | "onTheWay" | "arrived" | "delivered"
+  >("preparing");
+  const [remainingTime, setRemainingTime] = useState<number>(15);
+  const [routeCoordinates, setRouteCoordinates] = useState<
+    { latitude: number; longitude: number }[]
+  >([]);
+
+  const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
+  const bottomSheetHeight = useRef(new Animated.Value(100)).current;
+  const fullBottomSheetHeight = 380;
+  const collapsedBottomSheetHeight = 100;
+
+  const arrowRotation = useRef(new Animated.Value(1)).current;
+
+  const toggleBottomSheet = (expand = !bottomSheetExpanded) => {
+    const toValue = expand ? fullBottomSheetHeight : collapsedBottomSheetHeight;
+
+    Animated.parallel([
+      Animated.timing(bottomSheetHeight, {
+        toValue: toValue,
+        duration: 300,
+        useNativeDriver: false,
+      }),
+      Animated.timing(arrowRotation, {
+        toValue: expand ? 0 : 1,
+        duration: 300,
+        useNativeDriver: false,
+      }),
+    ]).start();
+
+    setBottomSheetExpanded(expand);
+  };
+
+  const arrowRotateStyle = {
+    transform: [
+      {
+        rotate: arrowRotation.interpolate({
+          inputRange: [0, 1],
+          outputRange: ["0deg", "180deg"],
+        }),
+      },
+    ],
+  };
+
+  // Получаем текущее местоположение пользователя
+  const getUserLocation = async () => {
+    setIsLocatingUser(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        console.log("Permission to access location was denied");
+        setIsLocatingUser(false);
+        return false;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const { latitude, longitude } = location.coords;
+      setUserLocation({ latitude, longitude });
+
+      console.log("User location acquired:", latitude, longitude);
+      return { latitude, longitude };
+    } catch (error) {
+      console.error("Error getting user location:", error);
+      Alert.alert("Error", "Could not get your current location");
+      return false;
+    } finally {
+      setIsLocatingUser(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      Alert.alert(
+        "Authentication Required",
+        "Please log in to track your delivery",
+        [
+          {
+            text: "OK",
+            onPress: () => router.push("/auth/login"),
+          },
+        ]
+      );
+    } else {
+      // Получаем местоположение пользователя при монтировании компонента
+      getUserLocation();
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const initializeTracking = async () => {
+      setIsLoading(true);
+      try {
+        // Получим местоположение пользователя, если еще не получили
+        let startLocation = userLocation;
+        if (!startLocation) {
+          const location = await getUserLocation();
+          if (location) {
+            startLocation = location;
+          } else {
+            // Если не удалось получить местоположение, используем значение по умолчанию
+            startLocation = {
+              latitude: fromLat ? parseFloat(fromLat as string) : 43.235,
+              longitude: fromLng ? parseFloat(fromLng as string) : 76.909,
+            };
+          }
+        }
+
+        // Используем местоположение пользователя как начальную точку для водителя
+        setDriverLocation(startLocation);
+
+        // Обновляем точку fromCoords на местоположение пользователя
+        setFromCoords(startLocation);
+
+        const initialRegion = {
+          latitude: (startLocation.latitude + toCoords.latitude) / 2,
+          longitude: (startLocation.longitude + toCoords.longitude) / 2,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        };
+        setRegion(initialRegion);
+
+        // Генерируем маршрут от местоположения пользователя до точки доставки
+        const waypoints = generateWaypoints(startLocation, toCoords, 10);
+        setRouteCoordinates([startLocation, ...waypoints, toCoords]);
+
+        const estimatedTime = calculateEstimatedDeliveryTime(
+          startLocation.latitude,
+          startLocation.longitude,
+          toCoords.latitude,
+          toCoords.longitude
+        );
+        setEstimatedDeliveryTime(estimatedTime);
+
+        if (orderId) {
+          const orderData = await OrderService.getOrderById(orderId as string);
+          if (orderData) {
+            setOrder(orderData);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to initialize tracking:", error);
+        Alert.alert("Error", "Failed to load delivery tracking information");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeTracking();
+  }, [fromLat, fromLng, toLat, toLng, orderId, isAuthenticated, userLocation]);
+
+  // Generate a route path
+  const generateWaypoints = (
+    start: { latitude: number; longitude: number },
+    end: { latitude: number; longitude: number },
+    numberOfPoints: number
+  ) => {
+    const waypoints = [];
+    for (let i = 1; i < numberOfPoints; i++) {
+      const ratio = i / numberOfPoints;
+      const lat = start.latitude + (end.latitude - start.latitude) * ratio;
+      const lng = start.longitude + (end.longitude - start.longitude) * ratio;
+
+      // Add some randomness to make the route look more natural
+      const jitter = 0.002; // Amount of randomness
+      const randomLat = lat + (Math.random() - 0.5) * jitter;
+      const randomLng = lng + (Math.random() - 0.5) * jitter;
+
+      waypoints.push({
+        latitude: randomLat,
+        longitude: randomLng,
+      });
+    }
+    return waypoints;
+  };
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !routeCoordinates.length) return;
+
+    // Create a reference to the interval so we can clear it later
+    let progress = 0;
+    let statusTimer = 1;
+    let intervalId: NodeJS.Timeout;
+
+    // Start the delivery process
+    const startDelivery = () => {
+      setDeliveryStatus("preparing");
+
+      // This interval updates the driver location and delivery status
+      intervalId = setInterval(() => {
+        // Update the progress (0 to 1)
+        progress += 0.005;
+        setDriverProgress(progress);
+        statusTimer += 1;
+
+        // Update delivery status based on progress
+        if (progress < 0.1 && deliveryStatus !== "preparing") {
+          setDeliveryStatus("preparing");
+        } else if (
+          progress >= 0.1 &&
+          progress < 0.3 &&
+          deliveryStatus !== "pickup"
+        ) {
+          setDeliveryStatus("pickup");
+        } else if (
+          progress >= 0.3 &&
+          progress < 0.9 &&
+          deliveryStatus !== "onTheWay"
+        ) {
+          setDeliveryStatus("onTheWay");
+        } else if (
+          progress >= 0.9 &&
+          progress < 1 &&
+          deliveryStatus !== "arrived"
+        ) {
+          setDeliveryStatus("arrived");
+        } else if (progress >= 1 && deliveryStatus !== "delivered") {
+          setDeliveryStatus("delivered");
+          clearInterval(intervalId);
+        }
+
+        // Update driver position based on progress through the route
+        if (routeCoordinates.length > 1 && progress < 1) {
+          const routeIndex = Math.min(
+            Math.floor(progress * routeCoordinates.length),
+            routeCoordinates.length - 1
+          );
+
+          const currentSegment = {
+            start: routeCoordinates[routeIndex],
+            end: routeCoordinates[
+              Math.min(routeIndex + 1, routeCoordinates.length - 1)
+            ],
+          };
+
+          const segmentProgress =
+            progress * routeCoordinates.length - routeIndex;
+
+          const newLat =
+            currentSegment.start.latitude +
+            (currentSegment.end.latitude - currentSegment.start.latitude) *
+              segmentProgress;
+          const newLng =
+            currentSegment.start.longitude +
+            (currentSegment.end.longitude - currentSegment.start.longitude) *
+              segmentProgress;
+
+          setDriverLocation({
+            latitude: newLat,
+            longitude: newLng,
+          });
+
+          // Update the remaining time
+          const remainingTimeInMinutes = Math.max(
+            Math.floor(15 * (1 - progress)),
+            1
+          );
+          setRemainingTime(remainingTimeInMinutes);
+
+          // Update the map to focus on the driver location
+          if (mapRef.current && statusTimer % 10 === 0) {
+            mapRef.current.animateToRegion(
+              {
+                latitude: newLat,
+                longitude: newLng,
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
+              },
+              1000
+            );
+          }
+        }
+
+        // If delivery is complete
+        if (progress >= 1) {
+          setDriverLocation(toCoords);
+          setRemainingTime(0);
+        }
+      }, 1000);
+    };
+
+    // Start the delivery simulation
+    startDelivery();
+
+    // Clean up the interval on unmount
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isLoading, isAuthenticated, routeCoordinates]);
+
+  // Get a descriptive status message based on delivery status
+  const getStatusMessage = () => {
+    switch (deliveryStatus) {
+      case "preparing":
+        return "Your order is being prepared";
+      case "pickup":
+        return "Driver is picking up your order";
+      case "onTheWay":
+        return `Driver is on the way (${remainingTime} min)`;
+      case "arrived":
+        return "Driver has arrived at your location";
+      case "delivered":
+        return "Your order has been delivered";
+      default:
+        return "Tracking your order...";
+    }
+  };
+
+  const goBack = () => {
+    router.back();
+  };
+
+  // Contact driver function
+  const contactDriver = () => {
+    if (driverInfo && driverInfo.phone) {
+      Alert.alert("Contact Driver", `Call ${driverInfo.name}?`, [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Call",
+          onPress: () => {
+            // In a real app, use Linking to make the call
+            console.log(`Calling driver at ${driverInfo.phone}`);
+            Alert.alert("Calling", `Calling driver at ${driverInfo.phone}`);
+          },
+        },
+      ]);
+    }
+  };
+
+  const renderRating = (rating: number) => {
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 !== 0;
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+
+    return (
+      <View style={styles.ratingContainer}>
+        {Array(fullStars)
+          .fill(0)
+          .map((_, i) => (
+            <Ionicons key={`full-${i}`} name="star" size={14} color="#FFD700" />
+          ))}
+        {hasHalfStar && <Ionicons name="star-half" size={14} color="#FFD700" />}
+        {Array(emptyStars)
+          .fill(0)
+          .map((_, i) => (
+            <Ionicons
+              key={`empty-${i}`}
+              name="star-outline"
+              size={14}
+              color="#FFD700"
+            />
+          ))}
+        <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
+      </View>
+    );
+  };
+
+  if (isLoading || isLocatingUser) {
+    return (
+      <SafeAreaView style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#4A5D23" />
+        <Text style={styles.loadingText}>
+          {isLocatingUser
+            ? "Getting your location..."
+            : "Loading tracking information..."}
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" />
+
+      {/* Map View */}
+      <View style={styles.mapContainer}>
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#FF6347" />
+            <Text style={styles.loadingText}>
+              Loading tracking information...
+            </Text>
+          </View>
+        ) : (
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            initialRegion={region}
+            showsUserLocation={true}
+          >
+            {/* Отображаем местоположение пользователя как отправную точку */}
+            <Marker
+              coordinate={fromCoords}
+              title="Your Location"
+              description="Starting point for delivery tracking"
+            >
+              <View style={styles.userLocationMarker}>
+                <Ionicons name="location" size={16} color="#fff" />
+              </View>
+            </Marker>
+
+            {/* Restaurant/Pickup Marker */}
+            <Marker
+              coordinate={fromCoords}
+              title="Pickup Location"
+              description={fromAddress as string}
+            >
+              <View style={styles.restaurantMarker}>
+                <FontAwesome5 name="store" size={16} color="#fff" />
+              </View>
+            </Marker>
+
+            {/* Destination Marker */}
+            <Marker
+              coordinate={toCoords}
+              title="Delivery Location"
+              description={toAddress as string}
+            >
+              <View style={styles.destinationMarker}>
+                <Feather name="home" size={16} color="#fff" />
+              </View>
+            </Marker>
+
+            {/* Driver Marker */}
+            <Marker
+              coordinate={driverLocation}
+              title={`Delivery Driver: ${driverInfo.name}`}
+              description={driverInfo.vehicleInfo}
+            >
+              <View style={styles.driverMarker}>
+                <MaterialIcons name="delivery-dining" size={20} color="#fff" />
+              </View>
+            </Marker>
+
+            {/* Route Path */}
+            {routeCoordinates.length > 0 && (
+              <Polyline
+                coordinates={routeCoordinates}
+                strokeWidth={4}
+                strokeColor="#FF6347"
+              />
+            )}
+          </MapView>
+        )}
+
+        {/* Back button - переместил внутрь mapContainer */}
+        <TouchableOpacity style={styles.backButton} onPress={goBack}>
+          <Ionicons name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
+
+        {/* Delivery Status Pill */}
+        <View style={styles.statusPill}>
+          <View
+            style={[
+              styles.statusIndicator,
+              deliveryStatus === "delivered"
+                ? styles.statusCompleted
+                : styles.statusActive,
+            ]}
+          />
+          <Text style={styles.statusText}>{getStatusMessage()}</Text>
+        </View>
+      </View>
+
+      {/* Bottom Sheet with Driver Info and Order Details */}
+      <Animated.View
+        style={[styles.bottomSheet, { height: bottomSheetHeight }]}
+      >
+        <TouchableOpacity
+          style={styles.bottomSheetHandle}
+          activeOpacity={0.7}
+          onPress={() => toggleBottomSheet()}
+        >
+          <View style={styles.handle} />
+          <Animated.View style={[styles.arrow, arrowRotateStyle]}>
+            <Ionicons name="chevron-up" size={24} color="#999" />
+          </Animated.View>
+        </TouchableOpacity>
+
+        {/* Driver Info Card */}
+        <View style={styles.driverCard}>
+          <View style={styles.driverInfo}>
+            <View style={styles.driverAvatar}>
+              {driverInfo.photoUrl ? (
+                <Image
+                  source={{ uri: driverInfo.photoUrl }}
+                  style={styles.driverPhoto}
+                />
+              ) : (
+                <Text style={styles.driverInitial}>
+                  {driverInfo.name.charAt(0)}
+                </Text>
+              )}
+            </View>
+            <View style={styles.driverDetails}>
+              <Text style={styles.driverName}>{driverInfo.name}</Text>
+              <View style={styles.ratingContainer}>
+                {renderRating(driverInfo.rating)}
+                <Text style={styles.ratingText}>
+                  {driverInfo.rating.toFixed(1)}
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.callButton} onPress={contactDriver}>
+              <Ionicons name="call" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.vehicleInfoSection}>
+            <Text style={styles.vehicleText}>{driverInfo.vehicleInfo}</Text>
+            <Text style={styles.plateText}>{driverInfo.licensePlate}</Text>
+          </View>
+        </View>
+
+        {/* Delivery Progress */}
+        <View style={styles.deliveryProgress}>
+          <View style={styles.progressLine}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${Math.min(driverProgress * 100, 100)}%` },
+              ]}
+            />
+          </View>
+          <View style={styles.progressSteps}>
+            <View style={styles.progressStep}>
+              <View
+                style={[
+                  styles.stepCircle,
+                  deliveryStatus !== "preparing"
+                    ? styles.stepCompleted
+                    : styles.stepActiveStyle,
+                ]}
+              />
+              <Text style={styles.stepLabel}>Preparing</Text>
+            </View>
+            <View style={styles.progressStep}>
+              <View
+                style={[
+                  styles.stepCircle,
+                  deliveryStatus === "pickup"
+                    ? styles.stepActiveStyle
+                    : deliveryStatus === "preparing"
+                    ? styles.stepInactive
+                    : styles.stepCompleted,
+                ]}
+              />
+              <Text style={styles.stepLabel}>Pickup</Text>
+            </View>
+            <View style={styles.progressStep}>
+              <View
+                style={[
+                  styles.stepCircle,
+                  deliveryStatus === "onTheWay"
+                    ? styles.stepActiveStyle
+                    : deliveryStatus === "preparing" ||
+                      deliveryStatus === "pickup"
+                    ? styles.stepInactive
+                    : styles.stepCompleted,
+                ]}
+              />
+              <Text style={styles.stepLabel}>On the way</Text>
+            </View>
+            <View style={styles.progressStep}>
+              <View
+                style={[
+                  styles.stepCircle,
+                  deliveryStatus === "arrived" || deliveryStatus === "delivered"
+                    ? styles.stepCompleted
+                    : styles.stepInactive,
+                ]}
+              />
+              <Text style={styles.stepLabel}>Delivered</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Order Details - only visible when expanded */}
+        {bottomSheetExpanded && order && (
+          <View style={styles.orderDetails}>
+            <Text style={styles.orderDetailsTitle}>Order Details</Text>
+            <View style={styles.orderItem}>
+              <Text style={styles.orderItemName}>Order #{order.id}</Text>
+              <Text style={styles.orderItemPrice}>
+                ${order.totalAmount?.toFixed(2)}
+              </Text>
+            </View>
+            {/* Order items would go here */}
+            <View style={styles.divider} />
+            <View style={styles.addressRow}>
+              <Feather name="map-pin" size={16} color="#666" />
+              <Text style={styles.addressText}>{toAddress}</Text>
+            </View>
+          </View>
+        )}
+      </Animated.View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+  loadingContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#666",
+  },
+  mapContainer: {
+    flex: 1,
+    position: "relative",
+  },
+  map: {
+    width: "100%",
+    height: "100%",
+  },
+  backButton: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+    zIndex: 10,
+  },
+  driverMarker: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#4A5D23",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  userLocationMarker: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#4285F4", // Синий цвет для маркера пользователя
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  bottomSheet: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 10,
+    minHeight: 100,
+  },
+  restaurantMarker: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#4A5D23",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  destinationMarker: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#FF3B30",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  statusPill: {
+    position: "absolute",
+    top: 16,
+    left: 72,
+    right: 16,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+    zIndex: 5,
+  },
+  statusIndicator: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 8,
+  },
+  statusActive: {
+    backgroundColor: "#4A5D23",
+  },
+  statusCompleted: {
+    backgroundColor: "#4A5D23",
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#333",
+  },
+  bottomSheetHandle: {
+    alignItems: "center",
+    paddingTop: 12,
+  },
+  handle: {
+    width: 40,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "#E0E0E0",
+    marginVertical: 8,
+  },
+  arrow: {
+    marginBottom: 5,
+  },
+  driverCard: {
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    marginBottom: 16,
+  },
+  driverInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  driverAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#f0f0f0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  driverPhoto: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 25,
+  },
+  driverInitial: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#4A5D23",
+  },
+  driverDetails: {
+    flex: 1,
+  },
+  callButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#4A5D23",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  vehicleInfoSection: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  vehicleText: {
+    fontSize: 13,
+    color: "#666",
+  },
+  plateText: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  deliveryProgress: {
+    marginBottom: 20,
+  },
+  progressLine: {
+    height: 4,
+    backgroundColor: "#f0f0f0",
+    borderRadius: 2,
+    marginBottom: 16,
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#4A5D23",
+    borderRadius: 2,
+  },
+  progressSteps: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  progressStep: {
+    alignItems: "center",
+    width: "22%",
+  },
+  stepCircle: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  stepActiveStyle: {
+    backgroundColor: "#4A5D23",
+  },
+  stepCompleted: {
+    backgroundColor: "#4A5D23",
+  },
+  stepInactive: {
+    backgroundColor: "#E0E0E0",
+  },
+  stepLabel: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+  },
+  orderDetails: {
+    backgroundColor: "#F9F9F9",
+    padding: 16,
+    borderRadius: 8,
+  },
+  orderDetailsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 12,
+  },
+  orderItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  orderItemName: {
+    fontSize: 14,
+    color: "#333",
+  },
+  orderItemPrice: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#4A5D23",
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#E0E0E0",
+    marginVertical: 12,
+  },
+  addressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  addressText: {
+    fontSize: 14,
+    color: "#333",
+    marginLeft: 8,
+  },
+  ratingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 2,
+  },
+  ratingText: {
+    fontSize: 12,
+    color: "#666",
+    marginLeft: 4,
+  },
+  driverName: {
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 2,
+  },
+});

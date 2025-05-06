@@ -1,0 +1,1612 @@
+import React, { useState, useEffect, useRef } from "react";
+import {
+  StyleSheet,
+  View,
+  Text,
+  TouchableOpacity,
+  SafeAreaView,
+  Image,
+  Dimensions,
+  Platform,
+  StatusBar,
+  Linking,
+  Animated,
+  PanResponder,
+  Alert,
+  Modal,
+  KeyboardAvoidingView,
+  Keyboard,
+  ScrollView,
+  LayoutAnimation,
+  UIManager,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import MapView, { Marker, Polyline } from "react-native-maps";
+import {
+  Ionicons,
+  FontAwesome,
+  MaterialIcons,
+  MaterialCommunityIcons,
+} from "@expo/vector-icons";
+import { router } from "expo-router";
+import {
+  globalState,
+  tripManager,
+  taxiRequestsManager,
+  TaxiRequest,
+} from "../../store/globalState";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import CancelConfirmationDialog from "./CancelConfirmationDialog";
+import { useAuth } from "../../auth/AuthContext";
+import SonarAnimation from "../../../components/SonarAnimation";
+import { useTranslation } from "react-i18next";
+
+// Enable LayoutAnimation for Android
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+const { width } = Dimensions.get("window");
+
+// Adjusted height constants to account for safe area
+const PANEL_MIN_HEIGHT = 140; // Height in collapsed state (only driver info)
+const PANEL_MAX_HEIGHT = 500; // Увеличиваем с 400 до 500 для большего обзора
+
+// Removing Extended TaxiRequest interface that we added
+interface DriverInfo {
+  id: string;
+  name: string;
+  photo: any;
+  rating: number;
+  car: string;
+  licensePlate: string;
+  phone?: string;
+}
+
+export default function TaxiTripScreen() {
+  const { t } = useTranslation();
+  const [secondsRemaining, setSecondsRemaining] = useState(
+    tripManager.getRemainingTime() || globalState.tripData.tripDuration
+  );
+  const insets = useSafeAreaInsets(); // Get safe area insets
+  const [tripStatus, setTripStatus] = useState(
+    globalState.tripData.status || "waiting"
+  );
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [activeRequest, setActiveRequest] = useState<TaxiRequest | null>(null);
+
+  // Use global state for driver search
+  const [searchTimeSeconds, setSearchTimeSeconds] = useState(
+    globalState.searchTimeSeconds
+  );
+  const [isSearchingDriver, setIsSearchingDriver] = useState(
+    globalState.isSearchingDriver
+  );
+  const [driverFound, setDriverFound] = useState(globalState.driverFound);
+  const [showDriverModal, setShowDriverModal] = useState(false);
+  const [showTripCompletedModal, setShowTripCompletedModal] = useState(false);
+  const [showExpandedContent, setShowExpandedContent] = useState(true);
+
+  // Map related refs and state
+  const mapRef = useRef<MapView>(null);
+  const [driverLocation, setDriverLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [destination, setDestination] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<
+    { latitude: number; longitude: number }[]
+  >([]);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(PANEL_MAX_HEIGHT);
+  const initialRegion = {
+    latitude: 43.238949,
+    longitude: 76.889709,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  };
+
+  // Keyboard state
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // For panel animation
+  const panelHeight = useRef(new Animated.Value(PANEL_MAX_HEIGHT)).current;
+  const [isPanelExpanded, setIsPanelExpanded] = useState(true);
+
+  // Route coordinates - используем координаты из globalState
+  const [route, setRoute] = useState([
+    // Начальные значения - будут обновлены в useEffect
+    { latitude: 43.240854, longitude: 76.889709 }, // Driver position - будет обновлено на случайную точку
+    { latitude: 43.238949, longitude: 76.889709 }, // Client position - будет обновлено из globalState
+  ]);
+
+  // Регион карты
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 43.238949,
+    longitude: 76.889709,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  });
+
+  // Driver information - initialize from globalState if available
+  const driver: DriverInfo = {
+    id: globalState.tripData.driverId || "driver123",
+    name: globalState.tripData.driverName || "Ivan Shastyn",
+    photo: require("@/assets/images/driver-photo.jpg"),
+    rating: 5.0,
+    car: "Grey Chevrolet Cobalt",
+    licensePlate: "666QSO2",
+  };
+
+  // Driver info derived from driver object
+  const driverName = driver?.name || "Driver";
+  const driverRating = driver?.rating || 4.8;
+  const driverPhoto = driver?.photo;
+  const carModel = driver?.car || "Car";
+  const carColor = driver?.car?.split(" ")[0] || "Grey";
+  const carPlate = driver?.licensePlate || "ABC123";
+
+  // Trip details - используем данные из activeRequest, если доступно
+  const tripDetails = {
+    price: activeRequest?.fare
+      ? `${activeRequest.fare} ₸`
+      : globalState.tripData.fare
+      ? `${globalState.tripData.fare} ₸`
+      : "1500 ₸",
+    paymentMethod: "VISA **** **** **** 5967",
+    destination:
+      activeRequest?.destination.name ||
+      globalState.tripData.destination ||
+      "Manasa 34/1",
+  };
+
+  // Trip price and destination derived from tripDetails
+  const tripPrice = tripDetails?.price || "0";
+  const destinationAddress = tripDetails?.destination || "Manasa 34/1";
+
+  // Masking the payment card number for display
+  const maskedCardNumber = "•••• •••• •••• 5967";
+
+  // Add role check from auth context
+  const { user } = useAuth();
+  const hasTaxiRole = React.useMemo(() => {
+    if (!user || !user.role) return false;
+    const roles = user.role.split(",");
+    return roles.includes("driver");
+  }, [user]);
+
+  // Получаем активный заказ пользователя
+  const fetchUserActiveRequest = async () => {
+    if (!user || !user.id) return;
+
+    try {
+      const userId = user.id.toString();
+      const userRoles = user.role ? user.role.split(",") : [];
+      const isDriver = userRoles.includes("driver");
+
+      // Get active request but only if the user is properly authorized to see it
+      const userRequest = await taxiRequestsManager.getUserActiveRequest(
+        userId
+      );
+
+      if (userRequest) {
+        console.log("Found active request for user:", userRequest);
+
+        // If a driver is trying to view a customer request they haven't accepted,
+        // don't display it
+        if (isDriver && userRequest.driverId !== userId) {
+          console.log("Driver not authorized to view this request");
+          // Redirect the driver back to taxi screen to see available orders
+          router.replace("/(tabs)/taxi-service/taxi");
+          return null;
+        }
+
+        setActiveRequest(userRequest);
+        return userRequest;
+      } else {
+        console.log("No active request found for user:", userId);
+
+        // If no active request found, but trip is active in global state,
+        // we might have stale data, redirect to taxi screen
+        if (!globalState.activeTaxiTrip) {
+          console.log("No active trip found, redirecting to taxi screen");
+          router.replace("/(tabs)/taxi-service/taxi");
+          return null;
+        }
+
+        return null;
+      }
+    } catch (error) {
+      console.error("Error fetching active request:", error);
+      return null;
+    }
+  };
+
+  // Update driving status if user is a taxi driver
+  useEffect(() => {
+    if (hasTaxiRole && tripStatus === "waiting") {
+      // For taxi drivers, automatically mark the trip as active
+      // since they are the ones driving
+      const updated = tripManager.updateTripStatus("active");
+      if (updated) {
+        setTripStatus("active");
+      }
+    }
+  }, [hasTaxiRole, tripStatus]);
+
+  // Check and initialize trip state on component mount
+  useEffect(() => {
+    // Verify if there's an active trip
+    const isActive = tripManager.checkTripActive();
+    console.log("Trip active check:", isActive);
+
+    // Fetch user's active request
+    const fetchTripData = async () => {
+      if (!user || !user.id) {
+        console.log("No user logged in, redirecting to home screen");
+        router.replace("/(tabs)");
+        return;
+      }
+
+      // Security check: Verify the trip belongs to the current user
+      if (
+        globalState.tripData.isActive &&
+        globalState.tripData.driverId !== null &&
+        // If user is a driver, they should only see trips they are assigned to
+        hasTaxiRole &&
+        globalState.tripData.driverId !== user.id.toString()
+      ) {
+        console.error(
+          "Security alert: Attempted access to unauthorized trip data"
+        );
+        // Reset the global state to prevent data leakage
+        resetTripAndCoordinates();
+        // Redirect to appropriate screen based on role
+        if (hasTaxiRole) {
+          console.log(
+            "Driver not authorized for this trip, redirecting to taxi screen"
+          );
+          router.replace("/(tabs)/taxi-service/taxi");
+        } else {
+          console.log("User not authorized for this trip, redirecting to home");
+          router.replace("/(tabs)");
+        }
+        return;
+      }
+
+      // Попытаемся найти активный заказ для пользователя
+      const activeReq = await fetchUserActiveRequest();
+      console.log(
+        "Active request for user:",
+        activeReq ? `ID: ${activeReq.id}, status: ${activeReq.status}` : "None"
+      );
+      // Добавьте эту функцию перед return в TaxiTripScreen
+      const goToHome = () => {
+        if (tripStatus === "waiting" || tripStatus === "active") {
+          // Если поездка активна, запросить подтверждение перед выходом
+          Alert.alert(t("taxi.trip.tripCancelled"), t("taxi.leaveActiveTrip"), [
+            {
+              text: t("cancel"),
+              style: "cancel",
+            },
+            {
+              text: t("yes"),
+              onPress: () => {
+                // Go to the home screen instead of taxi screen
+                router.replace("/(tabs)");
+              },
+            },
+          ]);
+        } else {
+          // Если поездка завершена или отменена, просто перейти на главную
+          router.replace("/(tabs)");
+        }
+      };
+      // Verify that the request belongs to the current user
+      if (activeReq) {
+        const isCustomer =
+          activeReq.customer.id.toString() === user.id.toString();
+        const isAssignedDriver =
+          hasTaxiRole && activeReq.driverId === user.id.toString();
+
+        if (!isCustomer && !isAssignedDriver) {
+          console.error(
+            "Security alert: User attempted to access unauthorized request"
+          );
+          resetTripAndCoordinates();
+          router.replace("/(tabs)");
+          return;
+        }
+      }
+
+      // Если статус активного заказа "cancelled" или "completed", сбрасываем состояние
+      if (
+        activeReq &&
+        (activeReq.status === "cancelled" || activeReq.status === "completed")
+      ) {
+        console.log("Request is cancelled or completed, resetting state");
+        resetTripAndCoordinates();
+        router.replace("/(tabs)");
+        return;
+      }
+
+      // If no active trip or request found, redirect to home
+      if (!isActive && !globalState.tripData.isActive && !activeReq) {
+        console.log("No active trip or request, redirecting to home screen");
+        router.replace("/(tabs)");
+        return;
+      }
+
+      // Если активный запрос найден, но нет активной поездки - инициализируем её
+      if (activeReq && (!isActive || !globalState.tripData.isActive)) {
+        console.log(
+          "Active request found but no active trip, initializing trip"
+        );
+        tripManager.startTrip({
+          driverId: activeReq.driverId || "pending_driver",
+          driverName: activeReq.driverId ? "Your Driver" : "Seeking Driver...",
+          origin: activeReq.pickup.name,
+          destination: activeReq.destination.name,
+          fare: activeReq.fare,
+          duration: 120, // 2 minutes default
+        });
+      }
+
+      // Set global flag
+      globalState.activeTaxiTrip = true;
+      console.log("Trip screen mounted, trip data:", globalState.tripData);
+
+      // Обновляем маршрут, используя координаты из запроса
+      if (activeReq) {
+        const clientCoordinates = activeReq.pickup.coordinates;
+        const destinationCoordinates = activeReq.destination.coordinates;
+
+        // Генерируем случайную точку для водителя в радиусе 1 км от клиента
+        const driverRandomCoordinates = generateRandomNearbyPoint(
+          clientCoordinates.latitude,
+          clientCoordinates.longitude,
+          1
+        );
+
+        // Обновляем маршрут с новыми точками
+        const updatedRoute = [
+          driverRandomCoordinates, // Случайная позиция водителя
+          destinationCoordinates, // Конечная точка
+        ];
+
+        setRoute(updatedRoute);
+
+        // Обновляем регион карты, чтобы показать весь маршрут
+        const midLat =
+          (updatedRoute[0].latitude + updatedRoute[1].latitude) / 2;
+        const midLng =
+          (updatedRoute[0].longitude + updatedRoute[1].longitude) / 2;
+
+        // Вычисляем разницу между координатами для охвата обеих точек
+        const latDelta =
+          Math.abs(updatedRoute[0].latitude - updatedRoute[1].latitude) * 1.5;
+        const lngDelta =
+          Math.abs(updatedRoute[0].longitude - updatedRoute[1].longitude) * 1.5;
+
+        setMapRegion({
+          latitude: midLat,
+          longitude: midLng,
+          latitudeDelta: Math.max(0.01, latDelta),
+          longitudeDelta: Math.max(0.01, lngDelta),
+        });
+      }
+      // Используем координаты из globalState как запасной вариант
+      else if (
+        globalState.pickupCoordinates &&
+        globalState.destinationCoordinates
+      ) {
+        const clientCoordinates = {
+          latitude: globalState.pickupCoordinates.latitude,
+          longitude: globalState.pickupCoordinates.longitude,
+        };
+
+        // Генерируем случайную точку для водителя в радиусе 1 км от клиента
+        const driverRandomCoordinates = generateRandomNearbyPoint(
+          clientCoordinates.latitude,
+          clientCoordinates.longitude,
+          1
+        );
+
+        // Обновляем маршрут с новыми точками
+        const updatedRoute = [
+          driverRandomCoordinates, // Случайная позиция водителя
+          {
+            latitude: globalState.destinationCoordinates.latitude,
+            longitude: globalState.destinationCoordinates.longitude,
+          }, // Конечная точка
+        ];
+
+        setRoute(updatedRoute);
+
+        // Обновляем регион карты, чтобы показать весь маршрут
+        const midLat =
+          (updatedRoute[0].latitude + updatedRoute[1].latitude) / 2;
+        const midLng =
+          (updatedRoute[0].longitude + updatedRoute[1].longitude) / 2;
+
+        // Вычисляем разницу между координатами для охвата обеих точек
+        const latDelta =
+          Math.abs(updatedRoute[0].latitude - updatedRoute[1].latitude) * 1.5;
+        const lngDelta =
+          Math.abs(updatedRoute[0].longitude - updatedRoute[1].longitude) * 1.5;
+
+        setMapRegion({
+          latitude: midLat,
+          longitude: midLng,
+          latitudeDelta: Math.max(0.01, latDelta),
+          longitudeDelta: Math.max(0.01, lngDelta),
+        });
+      }
+
+      // Update UI state
+      setTripStatus(globalState.tripData.status || "waiting");
+    };
+
+    fetchTripData();
+
+    // Clean up function when component unmounts
+    return () => {
+      // Don't reset the trip state on unmount - we want it to persist
+      console.log("Trip screen unmounted, trip state preserved");
+    };
+  }, []);
+
+  // Panel gesture handler with adjusted heights
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (evt, gestureState) => {
+        if (gestureState.dy > 0 && isPanelExpanded) {
+          // Collapse panel, but not more than minimum height
+          const newHeight = Math.max(
+            PANEL_MAX_HEIGHT - gestureState.dy,
+            PANEL_MIN_HEIGHT
+          );
+          panelHeight.setValue(newHeight);
+        } else if (gestureState.dy < 0 && !isPanelExpanded) {
+          // Expand panel, but not more than maximum height
+          const newHeight = Math.min(
+            PANEL_MIN_HEIGHT - gestureState.dy,
+            PANEL_MAX_HEIGHT
+          );
+          panelHeight.setValue(newHeight);
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        // When user releases, decide whether to fully collapse or expand
+        if (gestureState.dy > 50 && isPanelExpanded) {
+          // Collapse
+          collapsePanel();
+        } else if (gestureState.dy < -50 && !isPanelExpanded) {
+          // Expand
+          expandPanel();
+        } else {
+          // Return to previous state
+          if (isPanelExpanded) {
+            expandPanel();
+          } else {
+            collapsePanel();
+          }
+        }
+      },
+    })
+  ).current;
+
+  // Panel animation functions
+  const expandPanel = () => {
+    Animated.spring(panelHeight, {
+      toValue: PANEL_MAX_HEIGHT,
+      useNativeDriver: false,
+      friction: 8,
+    }).start();
+    setIsPanelExpanded(true);
+  };
+
+  const collapsePanel = () => {
+    Animated.spring(panelHeight, {
+      toValue: PANEL_MIN_HEIGHT,
+      useNativeDriver: false,
+      friction: 8,
+    }).start();
+    setIsPanelExpanded(false);
+  };
+
+  // Toggle panel state
+  const togglePanel = () => {
+    if (isPanelExpanded) {
+      collapsePanel();
+    } else {
+      expandPanel();
+    }
+  };
+
+  // Countdown timer for arrival time - synced with global state
+  useEffect(() => {
+    // Don't start timer if we're in sonar search mode
+    if (isSearchingDriver) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      const remaining = tripManager.getRemainingTime();
+
+      if (remaining <= 0 && tripStatus === "waiting") {
+        // When timer reaches zero, update trip status
+        const updated = tripManager.updateTripStatus("active");
+        if (updated) {
+          setTripStatus("active");
+
+          // Show alert that driver has arrived
+          Alert.alert(
+            t("taxi.trip.driverArrived"),
+            t("taxi.trip.driverArrived") + ".",
+            [
+              {
+                text: t("ok"),
+                onPress: () => console.log("Driver arrival acknowledged"),
+              },
+            ]
+          );
+        }
+        clearInterval(timer);
+      } else {
+        setSecondsRemaining(remaining);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [tripStatus, isSearchingDriver]);
+
+  // Format remaining time
+  const formatTimeRemaining = () => {
+    const minutes = Math.floor(secondsRemaining / 60);
+    const seconds = secondsRemaining % 60;
+    return `${minutes} minute${minutes !== 1 ? "s" : ""} ${seconds} second${
+      seconds !== 1 ? "s" : ""
+    }`;
+  };
+
+  // Get status message based on trip status
+  const getStatusMessage = () => {
+    switch (tripStatus) {
+      case "waiting":
+        return `The driver will be there in ${formatTimeRemaining()}.`;
+      case "active":
+        return "The driver has arrived. Enjoy your trip!";
+      case "completed":
+        return "Your trip has been completed.";
+      case "cancelled":
+        return "Your trip has been cancelled.";
+      default:
+        return `The driver will be there in ${formatTimeRemaining()}.`;
+    }
+  };
+
+  // Call driver function
+  const callDriver = () => {
+    Linking.openURL("tel:+77771234567");
+  };
+
+  // Chat with driver function
+  const chatWithDriver = () => {
+    // Navigate to chat screen
+    router.push("/(tabs)/taxi-service/chat");
+  };
+
+  // Cancel trip function - show cancel dialog
+  const cancelTrip = () => {
+    setShowCancelDialog(true);
+  };
+
+  // Handle dialog close
+  const handleCancelDialogClose = () => {
+    setShowCancelDialog(false);
+    console.log("Closing cancel dialog"); // Добавляем лог для отладки
+  };
+
+  // This is used to handle the cancellation confirmation from the dialog
+  const confirmCancelTrip = (reason: string) => {
+    console.log("Cancelling trip with reason:", reason);
+    handleCancellationConfirm();
+    setShowCancelDialog(false); // Добавляем явное закрытие модального окна
+  };
+
+  // Add these helper methods to the globalState object
+  const resetTripAndCoordinates = () => {
+    // Reset trip data
+    globalState.activeTaxiTrip = false;
+    globalState.needsNewOrder = true; // Установить флаг необходимости нового заказа
+
+    // Reset coordinates
+    globalState.pickupCoordinates = null;
+    globalState.destinationCoordinates = null;
+
+    // Reset all trip data fields
+    globalState.tripData = {
+      isActive: false,
+      startTime: null,
+      endTime: null,
+      tripDuration: 120, // Сброс до 2 минут по умолчанию
+      driverId: null,
+      driverName: null,
+      origin: null,
+      destination: null,
+      fare: null,
+      status: null,
+    };
+
+    console.log("Global state reset completed - new order will be required");
+  };
+
+  // Add method to remove a request from taxiRequestsManager
+  const removeRequestFromStorage = async (requestId: string) => {
+    const requestsJson = await AsyncStorage.getItem("taxiRequests");
+    if (requestsJson) {
+      const requests: TaxiRequest[] = JSON.parse(requestsJson);
+      const filteredRequests = requests.filter((req) => req.id !== requestId);
+      await AsyncStorage.setItem(
+        "taxiRequests",
+        JSON.stringify(filteredRequests)
+      );
+      return true;
+    }
+    return false;
+  };
+
+  // Handle cancellation confirmation
+  const handleCancellationConfirm = async () => {
+    // Check if user is logged in
+    if (!user || !user.id) {
+      Alert.alert("Error", "You need to be logged in to cancel a trip");
+      return;
+    }
+
+    try {
+      // Get cancellation message
+      let cancelMessage = "Trip cancelled";
+      let fee = 0;
+
+      // Найти и удалить активный заказ из хранилища
+      const activeRequest = await taxiRequestsManager.getUserActiveRequest(
+        user.id
+      );
+
+      console.log("Cancelling request:", activeRequest);
+
+      if (activeRequest) {
+        const orderTime = new Date(activeRequest.timestamp).getTime();
+        const currentTime = new Date().getTime();
+        const timeDiffMinutes = (currentTime - orderTime) / (1000 * 60);
+
+        if (timeDiffMinutes > 2) {
+          fee = 5; // $5 cancellation fee after 2 minutes
+          cancelMessage = `Trip cancelled with a $${fee} cancellation fee`;
+        }
+
+        // 1. Получаем все заказы
+        const allRequestsJson = await AsyncStorage.getItem("taxiRequests");
+        if (allRequestsJson) {
+          const allRequests: TaxiRequest[] = JSON.parse(allRequestsJson);
+
+          // 2. Удаляем текущий заказ из списка
+          const filteredRequests = allRequests.filter(
+            (req) => req.id !== activeRequest.id
+          );
+
+          // 3. Сохраняем обновленный список заказов (без отмененного)
+          await AsyncStorage.setItem(
+            "taxiRequests",
+            JSON.stringify(filteredRequests)
+          );
+
+          console.log("Removed request from storage:", activeRequest.id);
+          console.log("Remaining requests:", filteredRequests.length);
+        }
+      }
+
+      // Полностью сбросить глобальное состояние
+      resetTripAndCoordinates();
+      console.log("Trip state reset after cancellation");
+
+      // Сбросить состояние в компоненте
+      setActiveRequest(null);
+      setTripStatus("cancelled");
+      setIsSearchingDriver(false); // Reset searching state
+      setDriverFound(false); // Reset driver found state
+
+      // Show cancellation alert
+      Alert.alert(t("taxi.trip.tripCancelled"), cancelMessage, [
+        {
+          text: t("ok"),
+          onPress: () => {
+            setShowCancelDialog(false);
+
+            // Navigate to taxi order screen to allow creating a new order
+            tripManager.startOrderFlow(); // Make sure order flow is reset
+            globalState.needsNewOrder = true; // Explicitly set flag to ensure new order
+            router.replace("/(tabs)/taxi-service/taxi");
+          },
+        },
+      ]);
+    } catch (error) {
+      console.error("Error cancelling trip:", error);
+      Alert.alert("Error", "Failed to cancel trip. Please try again.");
+    }
+  };
+
+  // Go to home function
+  const goToHome = () => {
+    if (tripStatus === "waiting" || tripStatus === "active") {
+      // If trip is still active, confirm before leaving
+      Alert.alert(t("taxi.trip.tripCancelled"), t("taxi.leaveActiveTrip"), [
+        {
+          text: t("cancel"),
+          style: "cancel",
+        },
+        {
+          text: t("yes"),
+          onPress: () => {
+            // Go to the home screen instead of taxi screen
+            router.replace("/(tabs)");
+          },
+        },
+      ]);
+    } else {
+      // If trip is already completed or cancelled, go to home screen
+      router.replace("/(tabs)");
+    }
+  };
+
+  // Render rating stars
+  const renderStars = (rating: number) => {
+    const stars = [];
+    for (let i = 1; i <= 5; i++) {
+      stars.push(
+        <FontAwesome
+          key={i}
+          name="star"
+          size={14}
+          color={i <= rating ? "#FFC107" : "#E0E0E0"}
+          style={{ marginRight: 2 }}
+        />
+      );
+    }
+    return stars;
+  };
+
+  // Start the driver search process and monitor state changes// Start the driver search process and monitor state changes
+  useEffect(() => {
+    // Don't use automatic driver search, just check the global state for changes
+    if (
+      tripStatus === "waiting" &&
+      (!globalState.tripData.driverId ||
+        globalState.tripData.driverId === "pending_driver")
+    ) {
+      console.log("Waiting for a driver to accept the request...");
+      setIsSearchingDriver(true);
+
+      // Set up an interval to only check the global state for changes
+      const stateCheckTimerId = setInterval(() => {
+        // Update local state from global state
+        setSearchTimeSeconds(globalState.searchTimeSeconds || 0);
+
+        // If driver info was updated in the global state
+        if (
+          globalState.tripData.driverId &&
+          globalState.tripData.driverId !== "pending_driver"
+        ) {
+          console.log(
+            "Driver accepted the request:",
+            globalState.tripData.driverId
+          );
+          setDriverFound(true);
+          setIsSearchingDriver(false);
+          setShowDriverModal(true);
+
+          // After showing the modal, update the trip status after a delay
+          setTimeout(() => {
+            setShowDriverModal(false);
+            const updated = tripManager.updateTripStatus("active");
+            if (updated) {
+              setTripStatus("active");
+            }
+          }, 3000);
+
+          // Clear the interval as we don't need to check anymore
+          clearInterval(stateCheckTimerId);
+        }
+      }, 1000);
+
+      // Return cleanup function
+      return () => {
+        clearInterval(stateCheckTimerId);
+      };
+    } else if (
+      globalState.tripData.driverId &&
+      globalState.tripData.driverId !== "pending_driver"
+    ) {
+      // Driver is already assigned
+      setDriverFound(true);
+      setIsSearchingDriver(false);
+    }
+  }, [tripStatus]);
+
+  // Add keyboard listeners
+  useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        setKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates.height);
+
+        // Animate layout changes
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+
+        // Make sure modal content is visible above keyboard
+        if (showCancelDialog || showDriverModal) {
+          setTimeout(() => {
+            if (scrollViewRef.current) {
+              scrollViewRef.current.scrollToEnd({ animated: true });
+            }
+          }, 100);
+        }
+      }
+    );
+
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        setKeyboardVisible(false);
+        setKeyboardHeight(0);
+
+        // Animate layout changes
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
+    );
+
+    return () => {
+      keyboardWillShowListener.remove();
+      keyboardWillHideListener.remove();
+    };
+  }, [showCancelDialog, showDriverModal]);
+
+  // Toggle expanded content
+  const toggleExpandedContent = () => {
+    console.log(
+      "Toggling expanded content, current state:",
+      showExpandedContent
+    );
+    setShowExpandedContent(!showExpandedContent);
+
+    // Также изменим высоту панели
+    if (showExpandedContent) {
+      // Если панель расширена, то сжимаем
+      setBottomPanelHeight(PANEL_MIN_HEIGHT);
+    } else {
+      // Если панель сжата, то расширяем
+      setBottomPanelHeight(PANEL_MAX_HEIGHT);
+    }
+  };
+
+  // Get ETA text
+  const getEtaText = () => {
+    if (tripStatus === "waiting") {
+      return t("taxi.trip.driverArrivalTime", { time: formatTimeRemaining() });
+    } else if (tripStatus === "active") {
+      return t("taxi.trip.driverArrived");
+    } else if (tripStatus === "completed") {
+      return t("taxi.trip.tripCompleted");
+    } else {
+      return t("taxi.trip.tripCancelled");
+    }
+  };
+
+  // Handle call driver
+  const handleCallDriver = () => {
+    // Implement call functionality here
+    Linking.openURL(`tel:${driver?.phone || "+77771234567"}`);
+  };
+
+  // Handle chat with driver
+  const handleChatWithDriver = () => {
+    // Navigate to chat screen
+    router.push("/(tabs)/taxi-service/chat");
+  };
+
+  // Handle rating driver later
+  const handleRateDriverLater = () => {
+    setShowTripCompletedModal(false);
+    router.replace("/(tabs)/taxi-service/taxi");
+  };
+
+  // Update driver location
+  const updateDriverLocation = (location: {
+    latitude: number;
+    longitude: number;
+  }) => {
+    setDriverLocation(location);
+  };
+
+  // Initialize trip data
+  useEffect(() => {
+    // Set initial route coordinates based on trip details
+    if (globalState.pickupCoordinates && globalState.destinationCoordinates) {
+      const driverCoords = generateRandomNearbyPoint(
+        globalState.pickupCoordinates.latitude,
+        globalState.pickupCoordinates.longitude,
+        1
+      );
+
+      setDriverLocation(driverCoords);
+      setDestination(globalState.destinationCoordinates);
+
+      setRouteCoordinates([driverCoords, globalState.destinationCoordinates]);
+    }
+  }, []);
+
+  // Генерируем случайную точку рядом с заданными координатами
+  const generateRandomNearbyPoint = (
+    lat: number,
+    lng: number,
+    radiusKm: number = 1
+  ) => {
+    // Радиус Земли примерно 6371 км
+    const earthRadius = 6371;
+
+    // Преобразуем радиус из километров в радианы
+    const radiusInRadian = radiusKm / earthRadius;
+
+    // Генерируем случайный угол в радианах
+    const randomAngle = Math.random() * Math.PI * 2;
+
+    // Генерируем случайное расстояние в пределах указанного радиуса
+    const randomDistance = Math.random() * radiusInRadian;
+
+    // Преобразуем координаты в радианы
+    const latRad = (lat * Math.PI) / 180;
+    const lngRad = (lng * Math.PI) / 180;
+
+    // Вычисляем новую точку
+    const newLatRad = Math.asin(
+      Math.sin(latRad) * Math.cos(randomDistance) +
+        Math.cos(latRad) * Math.sin(randomDistance) * Math.cos(randomAngle)
+    );
+
+    const newLngRad =
+      lngRad +
+      Math.atan2(
+        Math.sin(randomAngle) * Math.sin(randomDistance) * Math.cos(latRad),
+        Math.cos(randomDistance) - Math.sin(latRad) * Math.sin(newLatRad)
+      );
+
+    // Преобразуем обратно в градусы
+    const newLat = (newLatRad * 180) / Math.PI;
+    const newLng = (newLngRad * 180) / Math.PI;
+
+    return { latitude: newLat, longitude: newLng };
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+    >
+      <View style={styles.mapContainer}>
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          initialRegion={initialRegion}
+          region={mapRegion}
+          scrollEnabled={!keyboardVisible}
+        >
+          {/* Driver Marker */}
+          {driverLocation && (
+            <Marker coordinate={driverLocation} anchor={{ x: 0.5, y: 0.5 }}>
+              <View style={styles.carMarker}>
+                <MaterialCommunityIcons name="car" size={20} color="#4A5D23" />
+              </View>
+            </Marker>
+          )}
+
+          {/* Destination Marker */}
+          {destination && (
+            <Marker
+              coordinate={{
+                latitude: destination.latitude,
+                longitude: destination.longitude,
+              }}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View style={styles.destinationMarker}>
+                <MaterialIcons name="location-pin" size={32} color="#F44336" />
+              </View>
+            </Marker>
+          )}
+
+          {/* Trip Route */}
+          {routeCoordinates.length > 0 && (
+            <Polyline
+              coordinates={routeCoordinates}
+              strokeWidth={4}
+              strokeColor="#4A5D23"
+              lineDashPattern={[0]}
+            />
+          )}
+        </MapView>
+
+        <TouchableOpacity style={styles.backButton} onPress={goToHome}>
+          <MaterialIcons name="arrow-back" size={24} color="#212121" />
+          <Text style={styles.visuallyHidden}>{t("taxi.trip.goBack")}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Animated.View
+        style={[
+          styles.bottomPanel,
+          {
+            height: bottomPanelHeight,
+            paddingBottom: keyboardVisible ? 10 : 20,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.arrivalIndicator}
+          onPress={toggleExpandedContent}
+          activeOpacity={0.7}
+        >
+          <View style={styles.indicatorLine} />
+        </TouchableOpacity>
+
+        {/* Searching for driver or driver found message */}
+        {isSearchingDriver ? (
+          <View style={styles.searchingContainer}>
+            <SonarAnimation
+              isSearching={isSearchingDriver}
+              searchTimeSeconds={searchTimeSeconds}
+              maxDiameter={120}
+              minDiameter={40}
+              initialDiameter={40}
+              pulseCount={3}
+              animationDelay={1000}
+              backgroundColor="#4A5D23"
+              pulseMode={true}
+              onDriverFound={() => setDriverFound(true)}
+            />
+            <Text style={styles.searchingText}>
+              {t("taxi.trip.searchingDriver")}
+            </Text>
+            <TouchableOpacity
+              style={styles.cancelSearchButton}
+              onPress={cancelTrip}
+            >
+              <Text style={styles.cancelSearchButtonText}>
+                {t("taxi.trip.cancelSearch")}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <Text style={styles.arrivalText}>
+            <Text style={styles.underlinedText}>
+              {t("taxi.trip.driverArrivalTime", { time: "2" })}
+            </Text>
+          </Text>
+        )}
+
+        {/* Driver Info */}
+        {driverFound && !isSearchingDriver && (
+          <View style={styles.driverInfoContainer}>
+            <Image
+              source={
+                driverPhoto ||
+                require("../../../assets/images/driver-photo.jpg")
+              }
+              style={styles.driverPhoto}
+            />
+            <View style={styles.driverDetails}>
+              <Text style={styles.driverName}>{driverName}</Text>
+              <View style={styles.ratingContainer}>
+                {renderStars(driverRating)}
+              </View>
+              <Text style={styles.carInfo}>
+                {carColor} {carModel}, {carPlate}
+              </Text>
+            </View>
+            <View style={styles.contactButtons}>
+              <TouchableOpacity
+                style={styles.contactButton}
+                onPress={handleCallDriver}
+                accessibilityLabel={t("taxi.trip.callDriver")}
+              >
+                <MaterialIcons name="phone" size={20} color="white" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.contactButton, styles.chatButton]}
+                onPress={handleChatWithDriver}
+                accessibilityLabel={t("taxi.trip.chatWithDriver")}
+              >
+                <MaterialIcons name="chat" size={20} color="white" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Trip Details */}
+        {!isSearchingDriver && (
+          <View style={styles.tripDetailsContainer}>
+            <View style={styles.tripDetailRow}>
+              <Text style={styles.tripDetailLabel}>
+                {t("taxi.trip.priceOfTrip")}
+              </Text>
+              <Text style={styles.tripDetailValue}>{tripPrice}</Text>
+            </View>
+
+            <View style={styles.tripDetailRow}>
+              <Text style={styles.tripDetailLabel}>
+                {t("taxi.trip.paymentMethod")}
+              </Text>
+              <View style={styles.paymentMethodContainer}>
+                <View style={styles.paymentIcon}>
+                  <Text style={styles.paymentIconText}>VISA</Text>
+                </View>
+                <Text style={styles.paymentCardText}>{maskedCardNumber}</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.driverInfoLink}>
+              <View style={styles.tripDetailRow}>
+                <Text style={styles.tripDetailLabel}>
+                  {t("taxi.trip.driverInfo")}
+                </Text>
+                <MaterialIcons name="chevron-right" size={20} color="#757575" />
+              </View>
+            </TouchableOpacity>
+
+            <View style={styles.tripDetailRow}>
+              <Text style={styles.tripDetailLabel}>
+                {t("taxi.trip.travelPoint")}
+              </Text>
+              <View style={styles.destinationContainer}>
+                <Text
+                  style={styles.tripDetailValue}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {destinationAddress}
+                </Text>
+              </View>
+            </View>
+
+            {(tripStatus === "waiting" ||
+              tripStatus === "active" ||
+              isSearchingDriver) && (
+              <View style={styles.actionButtonsContainer}>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={cancelTrip}
+                >
+                  <Text style={styles.cancelButtonText}>
+                    {t("taxi.trip.cancelTrip")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Scroll content - only shown if expanded and not in searching state */}
+        {!isSearchingDriver && !keyboardVisible && showExpandedContent && (
+          <ScrollView
+            style={styles.expandedContentScrollable}
+            contentContainerStyle={styles.expandedContentContainer}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Additional content can go here */}
+          </ScrollView>
+        )}
+      </Animated.View>
+
+      {/* Modals */}
+      <Modal
+        visible={showCancelDialog}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={handleCancelDialogClose}
+      >
+        <CancelConfirmationDialog
+          visible={showCancelDialog}
+          onClose={handleCancelDialogClose}
+          onConfirm={confirmCancelTrip}
+          tripStage={
+            tripStatus as
+              | "waiting"
+              | "active"
+              | "completed"
+              | "cancelled"
+              | null
+          }
+        />
+      </Modal>
+
+      <Modal
+        visible={showTripCompletedModal}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              keyboardVisible && styles.modalContentWithKeyboard,
+            ]}
+          >
+            <MaterialIcons
+              name="check-circle"
+              size={50}
+              color="#4A5D23"
+              style={styles.modalIcon}
+            />
+            <Text style={styles.modalTitle}>Trip Completed!</Text>
+            <Text style={styles.modalText}>
+              Thank you for using our service. We hope you had a pleasant trip.
+            </Text>
+            <Image
+              source={
+                driverPhoto
+                  ? { uri: driverPhoto }
+                  : require("../../../assets/images/driver-placeholder.jpg")
+              }
+              style={styles.modalDriverPhoto}
+            />
+            <Text style={styles.modalDriverInfo}>
+              How was your trip with {driverName}?
+            </Text>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={handleRateDriverLater}
+            >
+              <Text style={styles.modalButtonText}>Rate Later</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#F5F6FA",
+  },
+  mapContainer: {
+    height: "60%",
+    width: "100%",
+    position: "relative",
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  backButton: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 20,
+    left: 20,
+    backgroundColor: "white",
+    borderRadius: 30,
+    height: 40,
+    width: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 5,
+      },
+    }),
+  },
+  bottomPanel: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "white",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    maxHeight: "80%",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  arrivalIndicator: {
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  indicatorLine: {
+    width: 40,
+    height: 4,
+    backgroundColor: "#DADADA",
+    borderRadius: 10,
+  },
+  arrivalText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 15,
+  },
+  underlinedText: {
+    textDecorationLine: "underline",
+    fontSize: 16,
+  },
+  searchingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 15,
+  },
+  searchingText: {
+    fontSize: 16,
+    color: "#333",
+    marginTop: 10,
+  },
+  driverInfoContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 15,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+  },
+  driverPhoto: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 15,
+  },
+  driverDetails: {
+    flex: 1,
+  },
+  driverName: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#212121",
+    marginBottom: 4,
+  },
+  ratingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  carInfo: {
+    fontSize: 14,
+    color: "#757575",
+  },
+  contactButtons: {
+    flexDirection: "row",
+  },
+  contactButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#4CAF50",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
+  },
+  chatButton: {
+    backgroundColor: "#673AB7",
+  },
+  tripDetailsContainer: {
+    width: "100%",
+    marginTop: 10,
+  },
+  tripDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  tripDetailLabel: {
+    fontSize: 14,
+    color: "#757575",
+  },
+  tripDetailValue: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#212121",
+    maxWidth: "60%",
+    textAlign: "right",
+  },
+  paymentMethodContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  paymentIcon: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 2,
+    backgroundColor: "#000",
+    marginRight: 5,
+  },
+  paymentIconText: {
+    fontSize: 10,
+    color: "#FFFFFF",
+    fontWeight: "bold",
+  },
+  paymentCardText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#212121",
+  },
+  destinationContainer: {
+    flex: 1,
+    alignItems: "flex-end",
+  },
+  driverInfoLink: {
+    width: "100%",
+  },
+  actionButtonsContainer: {
+    marginTop: 20,
+    width: "100%",
+  },
+  cancelButton: {
+    backgroundColor: "#000",
+    paddingVertical: 15,
+    borderRadius: 25,
+    alignItems: "center",
+    marginTop: 15,
+  },
+  cancelButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  carMarker: {
+    backgroundColor: "white",
+    padding: 8,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: "#4A5D23",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  destinationMarker: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    padding: 24,
+    width: "90%",
+    alignItems: "center",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  modalContentWithKeyboard: {
+    position: "absolute",
+    bottom: Platform.OS === "ios" ? 100 : 50,
+    height: "auto",
+    maxHeight: "70%",
+    width: "90%",
+  },
+  modalIcon: {
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 12,
+    color: "#212121",
+    textAlign: "center",
+  },
+  modalText: {
+    fontSize: 16,
+    color: "#616161",
+    marginBottom: 24,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  modalDriverPhoto: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    marginBottom: 12,
+  },
+  modalDriverInfo: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#424242",
+    marginBottom: 24,
+    textAlign: "center",
+  },
+  modalButton: {
+    backgroundColor: "#4A5D23",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    width: "100%",
+    alignItems: "center",
+  },
+  modalButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  expandedContentScrollable: {
+    width: "100%",
+    marginTop: 5,
+    maxHeight: 400, // Устанавливаем максимальную высоту для скролла
+  },
+  expandedContentContainer: {
+    paddingBottom: 30,
+  },
+  visuallyHidden: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    overflow: "hidden",
+  },
+  cancelSearchButton: {
+    marginTop: 15,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: "#FF3B30",
+    borderRadius: 8,
+  },
+  cancelSearchButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+});
