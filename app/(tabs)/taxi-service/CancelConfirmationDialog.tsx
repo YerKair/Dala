@@ -10,6 +10,7 @@ import {
   FlatList,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 
 interface CancelConfirmationProps {
   visible: boolean;
@@ -26,16 +27,17 @@ const CancelConfirmationDialog: React.FC<CancelConfirmationProps> = ({
   onConfirm,
   tripStage,
 }) => {
+  const { t } = useTranslation();
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
 
   // Cancellation reasons
   const reasons = [
-    "Changed my plans",
-    "Waiting too long",
-    "Found alternative transport",
-    "Price too high",
-    "Driver asked to cancel",
-    "Other reason",
+    t("taxi.cancelDialog.reasonChangedPlans"),
+    t("taxi.cancelDialog.reasonWaitingTooLong"),
+    t("taxi.cancelDialog.reasonFoundAlternative"),
+    t("taxi.cancelDialog.reasonPriceTooHigh"),
+    t("taxi.cancelDialog.reasonDriverAsked"),
+    t("taxi.cancelDialog.reasonOther"),
   ];
 
   // Handle confirmation
@@ -75,7 +77,9 @@ const CancelConfirmationDialog: React.FC<CancelConfirmationProps> = ({
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>
-            {tripStage === "active" ? "End Trip" : "Cancel Trip"}
+            {tripStage === "active"
+              ? t("taxi.cancelDialog.endTrip")
+              : t("taxi.cancelDialog.cancelTrip")}
           </Text>
           <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
             <Ionicons name="close" size={24} color="#333" />
@@ -86,7 +90,7 @@ const CancelConfirmationDialog: React.FC<CancelConfirmationProps> = ({
         {tripStage === "waiting" ? (
           <>
             <Text style={styles.subtitle}>
-              Please select a reason for cancellation:
+              {t("taxi.cancelDialog.selectReason")}
             </Text>
             <FlatList
               data={reasons}
@@ -95,12 +99,12 @@ const CancelConfirmationDialog: React.FC<CancelConfirmationProps> = ({
               style={styles.reasonsList}
             />
             <Text style={styles.feeNote}>
-              *Note: Cancellation after 2 minutes may incur a 500 ₸ fee.
+              {t("taxi.cancelDialog.cancellationFeeNote")}
             </Text>
           </>
         ) : (
           <Text style={styles.subtitle}>
-            Are you sure you want to end your current trip?
+            {t("taxi.cancelDialog.endTripConfirm")}
           </Text>
         )}
 
@@ -108,7 +112,9 @@ const CancelConfirmationDialog: React.FC<CancelConfirmationProps> = ({
         <View style={styles.buttonContainer}>
           <TouchableOpacity style={styles.cancelButton} onPress={handleClose}>
             <Text style={styles.cancelButtonText}>
-              {tripStage === "active" ? "Continue Trip" : "Keep Trip"}
+              {tripStage === "active"
+                ? t("taxi.cancelDialog.continueTrip")
+                : t("taxi.cancelDialog.keepTrip")}
             </Text>
           </TouchableOpacity>
 
@@ -123,7 +129,9 @@ const CancelConfirmationDialog: React.FC<CancelConfirmationProps> = ({
             disabled={tripStage === "waiting" && !selectedReason}
           >
             <Text style={styles.confirmButtonText}>
-              {tripStage === "active" ? "End Trip" : "Cancel Trip"}
+              {tripStage === "active"
+                ? t("taxi.cancelDialog.endTrip")
+                : t("taxi.cancelDialog.cancelTrip")}
             </Text>
           </TouchableOpacity>
         </View>

@@ -66,6 +66,18 @@ interface DriverInfo {
   phone?: string;
 }
 
+// Demo driver data
+const DEMO_DRIVER = {
+  id: "d1",
+  name: "Ivan Shastyn",
+  rating: 4.8,
+  phone: "+7 777 123 4567",
+  photoUrl: "https://randomuser.me/api/portraits/men/32.jpg",
+  carModel: "Toyota Camry",
+  carColor: "White",
+  carPlate: "A 123 BC",
+};
+
 export default function TaxiTripScreen() {
   const { t } = useTranslation();
   const [secondsRemaining, setSecondsRemaining] = useState(

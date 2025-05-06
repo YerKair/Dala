@@ -63,6 +63,31 @@ interface TaxiRequestExtended extends TaxiRequest {
   estimatedTime?: number;
 }
 
+// Car types
+const CAR_TYPES = [
+  {
+    id: "economy",
+    name: "Economy",
+    icon: "car-outline",
+    price: 700,
+    time: "3-5",
+  },
+  {
+    id: "comfort",
+    name: "Comfort",
+    icon: "car-sport-outline",
+    price: 1200,
+    time: "5-7",
+  },
+  {
+    id: "premium",
+    name: "Premium",
+    icon: "car-sport-outline",
+    price: 2500,
+    time: "7-10",
+  },
+];
+
 export default function TaxiOrderScreen() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -100,7 +125,7 @@ export default function TaxiOrderScreen() {
   const [pendingOrders, setPendingOrders] = useState<TaxiRequestExtended[]>([]);
   const [showDriverControls, setShowDriverControls] = useState(false);
   const [showCarSelection, setShowCarSelection] = useState(false);
-  const [selectedCarType, setSelectedCarType] = useState("Normal");
+  const [selectedCarType, setSelectedCarType] = useState(CAR_TYPES[0].id);
   const [showAddressSelection, setShowAddressSelection] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [isLocating, setIsLocating] = useState(true); // Статус определения местоположения
@@ -533,25 +558,6 @@ export default function TaxiOrderScreen() {
     }
   };
 
-  // Варианты автомобилей для экрана выбора
-  const carOptions = [
-    {
-      type: "Normal",
-      price: 1500,
-      image: require("@/assets/images/car-normal.png"),
-    },
-    {
-      type: "Minivan",
-      price: 2100,
-      image: require("@/assets/images/car-minivan.png"),
-    },
-    {
-      type: "Joint trip",
-      price: 1100,
-      image: require("@/assets/images/car-joint.png"),
-    },
-  ];
-
   // Поиск адресов с использованием Nominatim API
   const searchAddresses = async (query: string) => {
     if (query.length < 3) {
@@ -683,7 +689,7 @@ export default function TaxiOrderScreen() {
     setSelectedFare(price);
   };
 
-  // Handle final order confirmation
+  // Handle order taxi
   const handleOrderTaxi = async () => {
     if (!destinationAddress) return;
 
@@ -996,18 +1002,47 @@ export default function TaxiOrderScreen() {
 
           {/* Car options */}
           <View style={styles.carOptionsContainer}>
-            {carOptions.map((car) => (
+            {CAR_TYPES.map((car) => (
               <TouchableOpacity
-                key={car.type}
+                key={car.id}
                 style={[
                   styles.carOption,
-                  selectedCarType === car.type && styles.carOptionSelected,
+                  selectedCarType === car.id && styles.carOptionSelected,
                 ]}
-                onPress={() => handleSelectCar(car.type, car.price)}
+                onPress={() => handleSelectCar(car.id, car.price)}
               >
-                <Image source={car.image} style={styles.carImage} />
-                <Text style={styles.carTypeText}>{car.type}</Text>
-                <Text style={styles.carPrice}>{car.price} ₸</Text>
+                <Ionicons
+                  name={car.icon as any}
+                  size={24}
+                  color={selectedCarType === car.id ? "#FFFFFF" : "#333333"}
+                />
+                <View style={styles.carTypeInfo}>
+                  <Text
+                    style={[
+                      styles.carTypeName,
+                      selectedCarType === car.id && styles.selectedCarTypeName,
+                    ]}
+                  >
+                    {t(`taxi.carTypes.${car.id}.name`)}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.carTypeDetails,
+                      selectedCarType === car.id &&
+                        styles.selectedCarTypeDetails,
+                    ]}
+                  >
+                    {t("taxi.carTypes.arrivalTime", { time: car.time })}
+                  </Text>
+                </View>
+                <Text
+                  style={[
+                    styles.carTypePrice,
+                    selectedCarType === car.id && styles.selectedCarTypePrice,
+                  ]}
+                >
+                  ₸{car.price}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -1577,6 +1612,57 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "white",
     fontWeight: "500",
+  },
+  carTypeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  selectedCarTypeButton: {
+    backgroundColor: "#4C6A2E",
+  },
+  carTypeInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  carTypeName: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#333333",
+    marginBottom: 4,
+  },
+  selectedCarTypeName: {
+    color: "#FFFFFF",
+  },
+  carTypeDetails: {
+    fontSize: 14,
+    color: "#888888",
+  },
+  selectedCarTypeDetails: {
+    color: "#FFFFFF",
+    opacity: 0.8,
+  },
+  carTypePrice: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333333",
+  },
+  selectedCarTypePrice: {
+    color: "#FFFFFF",
   },
 });
 

@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { globalState, tripManager } from "../../store/globalState";
+import { useTranslation } from "react-i18next";
 
 // Message interface
 interface Message {
@@ -30,6 +31,7 @@ interface Message {
 const initialMessages: Message[] = [];
 
 export default function ChatScreen() {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [inputText, setInputText] = useState("");
   const insets = useSafeAreaInsets();
@@ -107,7 +109,7 @@ export default function ChatScreen() {
     return (
       <View style={styles.timeDivider}>
         <Text style={styles.timeDividerText}>
-          Today at {formatTime(timestamp)}
+          {t("taxi.chat.today")} {formatTime(timestamp)}
         </Text>
       </View>
     );
@@ -131,7 +133,7 @@ export default function ChatScreen() {
             <Text style={styles.userMessageText}>{item.text}</Text>
           </View>
           {item.delivered && (
-            <Text style={styles.deliveredText}>Delivered</Text>
+            <Text style={styles.deliveredText}>{t("taxi.chat.delivered")}</Text>
           )}
         </View>
       );
@@ -159,7 +161,7 @@ export default function ChatScreen() {
         <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
           <Ionicons name="arrow-back" size={24} color="black" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Chat with a taxi driver</Text>
+        <Text style={styles.headerTitle}>{t("taxi.chat.title")}</Text>
         <View style={styles.spacer} />
       </View>
 
@@ -195,21 +197,25 @@ export default function ChatScreen() {
           </TouchableOpacity>
           <TextInput
             style={styles.input}
-            placeholder="Write your message"
+            placeholder={t("taxi.chat.writeMessage")}
             placeholderTextColor="#999"
             value={inputText}
             onChangeText={setInputText}
-            multiline={false}
+            multiline
+            maxLength={500}
           />
           <TouchableOpacity
-            style={styles.sendButton}
+            style={[
+              styles.sendButton,
+              inputText.trim().length === 0 && styles.disabledSendButton,
+            ]}
             onPress={handleSendMessage}
             disabled={inputText.trim().length === 0}
           >
             <Ionicons
               name="send"
               size={24}
-              color={inputText.trim().length === 0 ? "#ccc" : "#000"}
+              color={inputText.trim().length === 0 ? "#CCC" : "#4C6A2E"}
             />
           </TouchableOpacity>
         </View>
@@ -221,112 +227,120 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#F5F5F5",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 10,
+    backgroundColor: "white",
     borderBottomWidth: 1,
-    borderBottomColor: "#e1e1e1",
+    borderBottomColor: "#E0E0E0",
   },
   backButton: {
-    padding: 8,
+    padding: 5,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "600",
-    flex: 1,
-    textAlign: "center",
+    fontWeight: "bold",
   },
   spacer: {
-    width: 40,
+    width: 34, // Same width as the back button for balanced centering
   },
   messagesContainer: {
     flex: 1,
-    paddingHorizontal: 10,
   },
   messagesList: {
-    paddingTop: 10,
-    paddingBottom: 20,
+    padding: 16,
+    paddingBottom: 40,
   },
   timeDivider: {
     alignItems: "center",
     marginVertical: 16,
   },
   timeDividerText: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 12,
+    color: "#888",
+    backgroundColor: "#F0F0F0",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
   },
   userMessageContainer: {
-    alignSelf: "flex-end",
-    maxWidth: "80%",
-    marginVertical: 4,
-    marginHorizontal: 8,
+    alignItems: "flex-end",
+    marginBottom: 16,
   },
   userMessage: {
-    backgroundColor: "#4A5D23", // Green color matching the design
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    marginBottom: 2,
+    backgroundColor: "#E9F5FF",
+    padding: 12,
+    borderRadius: 20,
+    borderBottomRightRadius: 4,
+    maxWidth: "80%",
   },
   userMessageText: {
-    color: "white",
     fontSize: 16,
+    color: "#333",
   },
   deliveredText: {
     fontSize: 12,
-    color: "#666",
-    alignSelf: "flex-end",
-    marginTop: 2,
+    color: "#888",
+    marginTop: 4,
   },
   driverMessageContainer: {
-    alignSelf: "flex-start",
-    maxWidth: "80%",
-    marginVertical: 4,
-    marginHorizontal: 8,
+    alignItems: "flex-start",
+    marginBottom: 16,
   },
   driverName: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 12,
+    color: "#555",
     marginBottom: 4,
   },
   driverMessage: {
-    backgroundColor: "#000",
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    backgroundColor: "#FFFFFF",
+    padding: 12,
+    borderRadius: 20,
+    borderBottomLeftRadius: 4,
+    maxWidth: "80%",
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
   },
   driverMessageText: {
-    color: "white",
     fontSize: 16,
+    color: "#333",
   },
   inputContainer: {
+    backgroundColor: "white",
     borderTopWidth: 1,
-    borderTopColor: "#e1e1e1",
-    backgroundColor: "#f9f9f9",
+    borderTopColor: "#E0E0E0",
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingHorizontal: 16,
+    paddingTop: 10,
   },
   cameraButton: {
     padding: 8,
   },
   input: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: "#F0F0F0",
     borderRadius: 20,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    fontSize: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    maxHeight: 120,
     marginHorizontal: 8,
+    fontSize: 16,
   },
   sendButton: {
     padding: 8,
+  },
+  disabledSendButton: {
+    opacity: 0.5,
   },
 });
