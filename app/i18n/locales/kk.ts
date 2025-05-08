@@ -162,6 +162,47 @@ export default {
     acceptRequest: "Сұранысты қабылдау",
     leaveActiveTrip:
       "Сіздің сапарыңыз әлі белсенді. Экраннан шыққыңыз келе ме?",
+    carTypes: {
+      economy: {
+        name: "Эконом",
+        description: "Күнделікті қажеттіліктерге қолжетімді сапарлар",
+      },
+      comfort: {
+        name: "Комфорт",
+        description: "Жайлы сапарға арналған ыңғайлы көліктер",
+      },
+      premium: {
+        name: "Премиум",
+        description: "Ерекше жағдайлар үшін люкс көліктер",
+      },
+      arrivalTime: "{{time}} мин ішінде келеді",
+    },
+    alerts: {
+      error: "Қате",
+      carSelectionError: "Көлік түрін таңдау мүмкін болмады. Қайталап көріңіз.",
+    },
+    ordering: "Тапсырыс...",
+    confirmOrder: "Тапсырысты растау",
+    orderTaxi: "Такси тапсырыс беру",
+    cashPayment: "Қолма-қол ақша төлемі",
+    paymentMethod: "Төлем әдісі",
+    selectCarType: "Көлік түрін таңдаңыз",
+    totalFare: "Жалпы баға",
+    driverControls: {
+      title: "Жүргізуші басқару",
+      viewRequests: "Сапар сұраныстарын көру",
+    },
+    currentLocation: "Сіздің қазіргі орналасқан жеріңіз",
+    fetchingLocation: "Орналасқан жеріңізді анықтау...",
+    pickupLocation: "Алу орны",
+    destination: "Баратын жер",
+    enterDestination: "Баратын жерді енгізіңіз",
+    locationPermission: {
+      denied: "Геолокацияға рұқсат берілмеді",
+      message:
+        "Сізге жақын жердегі сапарларды табу үшін сіздің орналасқан жеріңіз қажет. Құрылғы параметрлерінде осы қосымша үшін геолокация қызметтерін қосыңыз.",
+      enable: "Геолокацияны қосу",
+    },
 
     // Trip screen
     trip: {
@@ -190,7 +231,7 @@ export default {
       keepTrip: "Сапарды сақтау",
       reasonChangedPlans: "Жоспарларым өзгерді",
       reasonWaitingTooLong: "Тым ұзақ күту",
-      reasonFoundAlternative: "Баламалы көлік таптым",
+      reasonFoundAlternative: "Баламалы көліk таптым",
       reasonPriceTooHigh: "Тым жоғары баға",
       reasonDriverAsked: "Жүргізуші болдырмауды сұрады",
       reasonOther: "Басқа себеп",

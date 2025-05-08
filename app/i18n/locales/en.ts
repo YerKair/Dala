@@ -262,6 +262,7 @@ export default {
     yourLocation: "Your location",
     whereToGo: "Where are we going?",
     order: "Order",
+    orderButton: "Order",
     selectCar: "Select car",
     price: "Price",
     distance: "Distance",
@@ -272,6 +273,60 @@ export default {
     anonymousUser: "Anonymous User",
     acceptRequest: "Accept Request",
     leaveActiveTrip: "Your trip is still active. Do you want to leave anyway?",
+    carTypes: {
+      economy: {
+        name: "Economy",
+        description: "Affordable rides for everyday needs",
+      },
+      comfort: {
+        name: "Comfort",
+        description: "More comfortable vehicles for a pleasant trip",
+      },
+      premium: {
+        name: "Premium",
+        description: "Luxury vehicles for special occasions",
+      },
+      normal: {
+        name: "Normal",
+      },
+      minivan: {
+        name: "Minivan",
+      },
+      joint: {
+        name: "Joint trip",
+      },
+      arrivalTime: "Arrives in {{time}} min",
+    },
+    alerts: {
+      error: "Error",
+      carSelectionError: "Could not select car type. Please try again.",
+    },
+    ordering: "Ordering...",
+    confirmOrder: "Confirm Order",
+    orderTaxi: "Order Taxi",
+    cashPayment: "Cash Payment",
+    paymentMethod: "Payment Method",
+    pickup: "Pickup",
+    km: "km",
+    minutes: "min",
+    distanceInfo: "Route distance: {{distance}} km",
+    totalFare: "Total Fare",
+    selectCarType: "Select Car Type",
+    driverControls: {
+      title: "Driver Controls",
+      viewRequests: "View Ride Requests",
+    },
+    currentLocation: "Your current location",
+    fetchingLocation: "Getting your location...",
+    pickupLocation: "Pickup Location",
+    destination: "Destination",
+    enterDestination: "Enter destination",
+    locationPermission: {
+      denied: "Location Permission Denied",
+      message:
+        "We need your location to find rides near you. Please enable location services for this app in your device settings.",
+      enable: "Enable Location",
+    },
 
     // Trip screen
     trip: {

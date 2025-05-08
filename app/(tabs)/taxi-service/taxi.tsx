@@ -20,6 +20,8 @@ import {
   Animated,
   LayoutAnimation,
   UIManager,
+  Modal,
+  Switch,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -50,43 +52,102 @@ if (
 
 const { width } = Dimensions.get("window");
 
-// Интерфейс для адреса с координатами
-interface Address {
+// Обновить структуру типа Address, добавив latitude и longitude
+type Address = {
+  id: string;
   name: string;
+  fullAddress: string;
   coordinates: {
     latitude: number;
     longitude: number;
   };
-}
+  latitude: number;
+  longitude: number;
+};
 
 interface TaxiRequestExtended extends TaxiRequest {
   estimatedTime?: number;
 }
 
-// Car types
-const CAR_TYPES = [
+interface CarType {
+  id: string;
+  name: string;
+  icon: string;
+  basePrice: number;
+  minPrice: number;
+  time: string;
+  image: any;
+}
+
+// Car types with base prices per kilometer
+const CAR_TYPES: CarType[] = [
   {
-    id: "economy",
-    name: "Economy",
+    id: "normal",
+    name: "Normal",
     icon: "car-outline",
-    price: 700,
+    basePrice: 200, // Price per kilometer
+    minPrice: 1500, // Minimum price
     time: "3-5",
+    image: require("../../../assets/images/car-normal.png"),
   },
   {
-    id: "comfort",
-    name: "Comfort",
+    id: "minivan",
+    name: "Minivan",
     icon: "car-sport-outline",
-    price: 1200,
+    basePrice: 300, // Price per kilometer
+    minPrice: 2100, // Minimum price
     time: "5-7",
+    image: require("../../../assets/images/car-minivan.png"),
   },
   {
-    id: "premium",
-    name: "Premium",
+    id: "joint",
+    name: "Joint trip",
     icon: "car-sport-outline",
-    price: 2500,
+    basePrice: 150, // Price per kilometer
+    minPrice: 1100, // Minimum price
     time: "7-10",
+    image: require("../../../assets/images/car-joint.png"),
   },
 ];
+
+// Function to calculate distance between two points
+const calculateDistanceBetweenPoints = (
+  point1: { latitude: number; longitude: number },
+  point2: { latitude: number; longitude: number }
+): number => {
+  if (!point1 || !point2) return 0;
+
+  // Convert degrees to radians
+  const lat1 = (point1.latitude * Math.PI) / 180;
+  const lon1 = (point1.longitude * Math.PI) / 180;
+  const lat2 = (point2.latitude * Math.PI) / 180;
+  const lon2 = (point2.longitude * Math.PI) / 180;
+
+  // Haversine formula
+  const dlon = lon2 - lon1;
+  const dlat = lat2 - lat1;
+  const a =
+    Math.sin(dlat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon / 2) ** 2;
+  const c = 2 * Math.asin(Math.sqrt(a));
+  const r = 6371; // Radius of earth in kilometers
+
+  // Return distance in kilometers
+  return c * r;
+};
+
+// Function to calculate price based on car type and distance
+const calculatePrice = (carTypeId: string, distance: number): number => {
+  // Find selected car type
+  const carType = CAR_TYPES.find((car) => car.id === carTypeId);
+  if (!carType) return 0;
+
+  // Calculate price based on distance and base price
+  const calculatedPrice = Math.round(distance * carType.basePrice);
+
+  // Apply minimum price if calculated price is too low
+  return Math.max(calculatedPrice, carType.minPrice);
+};
 
 export default function TaxiOrderScreen() {
   const { t } = useTranslation();
@@ -100,11 +161,15 @@ export default function TaxiOrderScreen() {
     "location" | "cars" | "requests"
   >("location");
   const [pickupAddress, setPickupAddress] = useState<Address>({
+    id: "",
     name: t("taxi.yourLocation"),
+    fullAddress: "",
     coordinates: {
       latitude: 43.238949,
       longitude: 76.889709,
     },
+    latitude: 43.238949,
+    longitude: 76.889709,
   });
   const [userLocation, setUserLocation] = useState<{
     latitude: number;
@@ -137,6 +202,8 @@ export default function TaxiOrderScreen() {
     latitudeDelta: 0.02,
     longitudeDelta: 0.02,
   });
+  const [tripDistance, setTripDistance] = useState<number>(0);
+  const [carPrices, setCarPrices] = useState<{ [key: string]: number }>({});
 
   // Keyboard state
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -521,11 +588,15 @@ export default function TaxiOrderScreen() {
 
       // Устанавливаем данные о местоположении
       const currentLocation = {
+        id: "",
         name: addressName,
+        fullAddress: "",
         coordinates: {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
         },
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
       };
 
       setPickupAddress(currentLocation);
@@ -584,11 +655,15 @@ export default function TaxiOrderScreen() {
 
       // Преобразуем результаты в наш формат
       const addresses: Address[] = data.map((item: any) => ({
+        id: "",
         name: item.display_name.split(",").slice(0, 2).join(", "),
+        fullAddress: "",
         coordinates: {
           latitude: parseFloat(item.lat),
           longitude: parseFloat(item.lon),
         },
+        latitude: parseFloat(item.lat),
+        longitude: parseFloat(item.lon),
       }));
 
       setSearchResults(addresses);
@@ -597,12 +672,20 @@ export default function TaxiOrderScreen() {
       // Используем резервные данные в случае ошибки
       setSearchResults([
         {
+          id: "",
           name: "Достык 91",
+          fullAddress: "",
           coordinates: { latitude: 43.234525, longitude: 76.956627 },
+          latitude: 43.234525,
+          longitude: 76.956627,
         },
         {
+          id: "",
           name: "Манаса 34/1",
+          fullAddress: "",
           coordinates: { latitude: 43.22551, longitude: 76.906395 },
+          latitude: 43.22551,
+          longitude: 76.906395,
         },
       ]);
     } finally {
@@ -618,7 +701,7 @@ export default function TaxiOrderScreen() {
 
     searchTimeoutRef.current = setTimeout(() => {
       searchAddresses(query);
-    }, 300);
+    }, 300) as unknown as NodeJS.Timeout;
   };
 
   // Handle destination input change - with debounce
@@ -632,11 +715,27 @@ export default function TaxiOrderScreen() {
     debouncedSearchAddresses(text);
   };
 
-  // Select destination address from search results
+  // Handle select destination address from search results
   const handleSelectAddress = (address: Address) => {
     setDestinationAddress(address);
     setDestinationInput(address.name);
     setSearchResults([]);
+
+    // Calculate distance between pickup and destination
+    const distance = calculateDistanceBetweenPoints(
+      pickupAddress.coordinates,
+      address.coordinates
+    );
+    setTripDistance(distance);
+    console.log("Calculated distance:", distance, "km");
+
+    // Calculate prices for all car types
+    const prices: { [key: string]: number } = {};
+    CAR_TYPES.forEach((car) => {
+      prices[car.id] = calculatePrice(car.id, distance);
+      console.log(`Price for ${car.id}:`, prices[car.id]);
+    });
+    setCarPrices(prices);
 
     // Update map region to include both pickup and destination
     const midLat =
@@ -673,7 +772,339 @@ export default function TaxiOrderScreen() {
       },
       1000
     );
+
+    // Automatically show car selection after selecting destination
+    setTimeout(() => {
+      setShowCarSelection(true);
+      setCurrentView("cars");
+    }, 1000);
   };
+
+  // Render car type button - updated version with dynamic pricing
+  const renderCarTypeButton = (carType: (typeof CAR_TYPES)[0]) => {
+    const isSelected = selectedCarType === carType.id;
+    const price = carPrices[carType.id] || carType.minPrice;
+
+    return (
+      <TouchableOpacity
+        key={carType.id}
+        style={[styles.carCard, isSelected && styles.carCardSelected]}
+        onPress={() => handleSelectCar(carType.id, price)}
+      >
+        {carType.image && (
+          <Image source={carType.image} style={styles.carImage} />
+        )}
+        <Text style={styles.carTypeName}>
+          {t(`taxi.carTypes.${carType.id}.name`) || carType.name}
+        </Text>
+        <Text style={styles.carPrice}>{price} ₸</Text>
+        <Text style={styles.basePricePerKm}>
+          {carType.basePrice} ₸/{"km"}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  // Second screen - car selection
+  const renderCarSelectionScreen = () => {
+    return (
+      <View style={{ flex: 1 }}>
+        <View style={{ height: "60%" }}>
+          <MapView
+            style={{ flex: 1 }}
+            region={mapRegion}
+            onRegionChangeComplete={setMapRegion}
+            ref={mapRef}
+          >
+            {pickupAddress && (
+              <Marker
+                coordinate={{
+                  latitude: pickupAddress.coordinates.latitude,
+                  longitude: pickupAddress.coordinates.longitude,
+                }}
+                title={t("taxi.pickup")}
+                pinColor="#4CAF50"
+              >
+                <View style={styles.currentLocationMarker}>
+                  <View style={styles.currentLocationDot} />
+                </View>
+              </Marker>
+            )}
+            {destinationAddress && (
+              <Marker
+                coordinate={{
+                  latitude: destinationAddress.coordinates.latitude,
+                  longitude: destinationAddress.coordinates.longitude,
+                }}
+                title={t("taxi.destination")}
+                pinColor="#F44336"
+              >
+                <View style={styles.destinationMarker}>
+                  <View style={styles.destinationDot} />
+                </View>
+              </Marker>
+            )}
+            {pickupAddress && destinationAddress && (
+              <Polyline
+                coordinates={[
+                  {
+                    latitude: pickupAddress.coordinates.latitude,
+                    longitude: pickupAddress.coordinates.longitude,
+                  },
+                  {
+                    latitude: destinationAddress.coordinates.latitude,
+                    longitude: destinationAddress.coordinates.longitude,
+                  },
+                ]}
+                strokeColor="#4A5D23"
+                strokeWidth={4}
+              />
+            )}
+          </MapView>
+        </View>
+
+        {/* Кнопка назад - вне контейнера карты, чтобы была поверх всего */}
+        <TouchableOpacity
+          style={[
+            styles.backButton,
+            { position: "absolute", top: 50, left: 20, zIndex: 100 },
+          ]}
+          onPress={handleGoBack}
+        >
+          <Ionicons name="arrow-back" size={24} color="black" />
+        </TouchableOpacity>
+
+        <View style={styles.carSelectionPanel}>
+          {tripDistance > 0 && (
+            <View style={styles.distanceInfoContainer}>
+              <Ionicons name="location" size={16} color="#4CAF50" />
+              <Text style={styles.distanceInfoText}>
+                {`${t("taxi.distance")}: ${tripDistance.toFixed(1)} km`}
+              </Text>
+            </View>
+          )}
+
+          <Text style={styles.sectionHeaderText}>
+            {t("taxi.selectCar")}
+          </Text>
+
+          <View style={styles.carTypesContainer}>
+            {CAR_TYPES.map((carType) => renderCarTypeButton(carType))}
+          </View>
+
+          <View style={styles.orderSummary}>
+            <View style={styles.priceContainer}>
+              <Text style={styles.priceLabel}>{t("taxi.price")}</Text>
+              <Text style={styles.priceValue}>{getSelectedCarPrice()} ₸</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.orderButtonNew}
+              onPress={handleOrderTaxi}
+              disabled={
+                !pickupAddress || !destinationAddress || !selectedCarType
+              }
+            >
+              <Text style={styles.orderButtonText}>
+                {t("taxi.orderButton") || t("taxi.order")}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const handleAcceptRequest = async (requestId: string) => {
+    Alert.alert(
+      "Accept Ride Request",
+      "Are you sure you want to accept this ride request?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Accept",
+          onPress: async () => {
+            setIsLoading(true);
+            try {
+              // Проверяем наличие пользователя напрямую
+              if (!user || !user.id) {
+                Alert.alert(
+                  "Error",
+                  "You must be logged in to accept requests"
+                );
+                return;
+              }
+
+              const userId = user.id.toString();
+              console.log("Using userId from user object:", userId);
+
+              const driver = userStore.getState().user || {
+                name: "Driver",
+                phone: "",
+                photo: null,
+              };
+
+              console.log("Accepting request:", requestId);
+              console.log("Driver info:", { userId, driver });
+
+              // Get the request details
+              const request = pendingOrders.find((req) => req.id === requestId);
+              if (!request) {
+                Alert.alert("Error", "Request details not found");
+                return;
+              }
+
+              console.log("Request to accept:", request);
+
+              // Accept the request
+              const result = await taxiRequestsManager.acceptRequest(
+                requestId,
+                userId,
+                user.name || driver.name || "Driver"
+              );
+
+              if (!result) {
+                Alert.alert(
+                  "Error",
+                  "Failed to accept the request. It may have already been taken or cancelled."
+                );
+                await fetchPendingRequests(); // Refresh the list
+                return;
+              }
+
+              console.log("Accepted request result:", result);
+
+              // Start the trip locally
+              tripManager.startTrip({
+                driverId: userId,
+                driverName: user.name || driver.name || "Driver",
+                origin: request.pickup.name,
+                destination: request.destination.name,
+                fare: request.fare,
+                duration: 120, // 2 minutes from now
+              });
+
+              // Navigate to trip screen
+              router.replace("/(tabs)/taxi-service/trip");
+            } catch (error) {
+              console.error("Error accepting request:", error);
+              Alert.alert(
+                "Error",
+                "Failed to accept the request. Please try again."
+              );
+            } finally {
+              setIsLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Driver mode UI to display available requests
+  const renderDriverRequestsScreen = () => (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Available Taxi Requests</Text>
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={refreshOrdersList}
+          disabled={refreshing}
+        >
+          <Ionicons
+            name="refresh"
+            size={24}
+            color="#4A5D23"
+            style={refreshing ? { opacity: 0.5 } : {}}
+          />
+        </TouchableOpacity>
+      </View>
+
+      {refreshing ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4A5D23" />
+          <Text style={styles.loadingText}>Refreshing requests...</Text>
+        </View>
+      ) : pendingOrders.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <MaterialIcons name="local-taxi" size={80} color="#E0E0E0" />
+          <Text style={styles.emptyText}>
+            No available requests at the moment
+          </Text>
+          <Text style={styles.emptySubtext}>
+            Pull down to refresh or check back later
+          </Text>
+          <TouchableOpacity
+            style={styles.switchModeButton}
+            onPress={() => setShowDriverControls(false)}
+          >
+            <Text style={styles.switchModeButtonText}>
+              Switch to Passenger Mode
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView
+          style={{ flex: 1, width: "100%" }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 30 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refreshOrdersList}
+              colors={["#4A5D23"]}
+            />
+          }
+        >
+          {pendingOrders.map((request) => (
+            <RequestItem
+              key={request.id}
+              request={request}
+              onAccept={handleAcceptRequest}
+            />
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  );
+
+  // Add keyboard listeners
+  useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        setKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates.height);
+
+        // Animate the bottom panel up
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+
+        // Scroll to the input field after a short delay
+        setTimeout(() => {
+          if (destinationInputRef.current && scrollViewRef.current) {
+            scrollViewRef.current.scrollToEnd({ animated: true });
+          }
+        }, 100);
+      }
+    );
+
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        setKeyboardVisible(false);
+        setKeyboardHeight(0);
+
+        // Animate the bottom panel down
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
+    );
+
+    return () => {
+      keyboardWillShowListener.remove();
+      keyboardWillHideListener.remove();
+    };
+  }, []);
 
   // Handle initial order - show car selection
   const handleInitialOrder = () => {
@@ -681,12 +1112,26 @@ export default function TaxiOrderScreen() {
       return;
     }
     setShowCarSelection(true);
+    setCurrentView("cars");
   };
 
   // Handle car selection
   const handleSelectCar = (carType: string, price: number) => {
     setSelectedCarType(carType);
-    setSelectedFare(price);
+    // Use calculated price from carPrices state
+    setSelectedFare(carPrices[carType] || price);
+  };
+
+  // Calculate selected car price with current distance
+  const getSelectedCarPrice = () => {
+    if (!destinationAddress) return 0;
+
+    // Use the calculated price from carPrices state or use base price as fallback
+    const selectedCar = CAR_TYPES.find((car) => car.id === selectedCarType);
+    const price = selectedCar
+      ? carPrices[selectedCar.id] || selectedCar.minPrice
+      : 0;
+    return price;
   };
 
   // Handle order taxi
@@ -742,6 +1187,7 @@ export default function TaxiOrderScreen() {
 
   // Go back from car selection to initial screen
   const handleGoBack = () => {
+    setCurrentView("location");
     setShowCarSelection(false);
   };
 
@@ -941,322 +1387,6 @@ export default function TaxiOrderScreen() {
       </SafeAreaView>
     </KeyboardAvoidingView>
   );
-
-  // Second screen - car selection
-  const renderCarSelectionScreen = () => (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
-    >
-      <SafeAreaView style={styles.container}>
-        {/* Map view */}
-        <View style={styles.mapContainer}>
-          <MapView style={styles.map} region={mapRegion} ref={mapRef}>
-            {/* Pickup marker */}
-            {pickupAddress && (
-              <Marker coordinate={pickupAddress.coordinates}>
-                <View style={styles.currentLocationMarker}>
-                  <View style={styles.currentLocationDot} />
-                </View>
-              </Marker>
-            )}
-
-            {/* Destination marker */}
-            {destinationAddress && (
-              <Marker coordinate={destinationAddress.coordinates}>
-                <View style={styles.destinationMarker}>
-                  <View style={styles.destinationDot} />
-                </View>
-              </Marker>
-            )}
-
-            {/* Route line */}
-            {destinationAddress && (
-              <Polyline
-                coordinates={[
-                  pickupAddress.coordinates,
-                  destinationAddress.coordinates,
-                ]}
-                strokeColor="#4A5D23"
-                strokeWidth={4}
-              />
-            )}
-          </MapView>
-        </View>
-
-        {/* Back button */}
-        <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
-          <Ionicons name="arrow-back" size={24} color="black" />
-        </TouchableOpacity>
-
-        {/* Car selection panel */}
-        <ScrollView
-          style={styles.bottomPanel}
-          contentContainerStyle={styles.bottomPanelContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.dragIndicator} />
-
-          <Text style={styles.panelTitle}>{t("taxi.selectCar")}</Text>
-
-          {/* Car options */}
-          <View style={styles.carOptionsContainer}>
-            {CAR_TYPES.map((car) => (
-              <TouchableOpacity
-                key={car.id}
-                style={[
-                  styles.carOption,
-                  selectedCarType === car.id && styles.carOptionSelected,
-                ]}
-                onPress={() => handleSelectCar(car.id, car.price)}
-              >
-                <Ionicons
-                  name={car.icon as any}
-                  size={24}
-                  color={selectedCarType === car.id ? "#FFFFFF" : "#333333"}
-                />
-                <View style={styles.carTypeInfo}>
-                  <Text
-                    style={[
-                      styles.carTypeName,
-                      selectedCarType === car.id && styles.selectedCarTypeName,
-                    ]}
-                  >
-                    {t(`taxi.carTypes.${car.id}.name`)}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.carTypeDetails,
-                      selectedCarType === car.id &&
-                        styles.selectedCarTypeDetails,
-                    ]}
-                  >
-                    {t("taxi.carTypes.arrivalTime", { time: car.time })}
-                  </Text>
-                </View>
-                <Text
-                  style={[
-                    styles.carTypePrice,
-                    selectedCarType === car.id && styles.selectedCarTypePrice,
-                  ]}
-                >
-                  ₸{car.price}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Order button */}
-          <TouchableOpacity
-            style={styles.orderButton}
-            onPress={handleOrderTaxi}
-          >
-            <Text style={styles.orderButtonText}>{t("taxi.order")}</Text>
-          </TouchableOpacity>
-        </ScrollView>
-
-        {/* Loading indicator */}
-        {isLoading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#000" />
-          </View>
-        )}
-      </SafeAreaView>
-    </KeyboardAvoidingView>
-  );
-
-  const handleAcceptRequest = async (requestId: string) => {
-    Alert.alert(
-      "Accept Ride Request",
-      "Are you sure you want to accept this ride request?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Accept",
-          onPress: async () => {
-            setIsLoading(true);
-            try {
-              // Проверяем наличие пользователя напрямую
-              if (!user || !user.id) {
-                Alert.alert(
-                  "Error",
-                  "You must be logged in to accept requests"
-                );
-                return;
-              }
-
-              const userId = user.id.toString();
-              console.log("Using userId from user object:", userId);
-
-              const driver = userStore.getState().user || {
-                name: "Driver",
-                phone: "",
-                photo: null,
-              };
-
-              console.log("Accepting request:", requestId);
-              console.log("Driver info:", { userId, driver });
-
-              // Get the request details
-              const request = pendingOrders.find((req) => req.id === requestId);
-              if (!request) {
-                Alert.alert("Error", "Request details not found");
-                return;
-              }
-
-              console.log("Request to accept:", request);
-
-              // Accept the request
-              const result = await taxiRequestsManager.acceptRequest(
-                requestId,
-                userId,
-                user.name || driver.name || "Driver"
-              );
-
-              if (!result) {
-                Alert.alert(
-                  "Error",
-                  "Failed to accept the request. It may have already been taken or cancelled."
-                );
-                await fetchPendingRequests(); // Refresh the list
-                return;
-              }
-
-              console.log("Accepted request result:", result);
-
-              // Start the trip locally
-              tripManager.startTrip({
-                driverId: userId,
-                driverName: user.name || driver.name || "Driver",
-                origin: request.pickup.name,
-                destination: request.destination.name,
-                fare: request.fare,
-                duration: 120, // 2 minutes from now
-              });
-
-              // Navigate to trip screen
-              router.replace("/(tabs)/taxi-service/trip");
-            } catch (error) {
-              console.error("Error accepting request:", error);
-              Alert.alert(
-                "Error",
-                "Failed to accept the request. Please try again."
-              );
-            } finally {
-              setIsLoading(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  // Driver mode UI to display available requests
-  const renderDriverRequestsScreen = () => (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Available Taxi Requests</Text>
-        <TouchableOpacity
-          style={styles.refreshButton}
-          onPress={refreshOrdersList}
-          disabled={refreshing}
-        >
-          <Ionicons
-            name="refresh"
-            size={24}
-            color="#4A5D23"
-            style={refreshing ? { opacity: 0.5 } : {}}
-          />
-        </TouchableOpacity>
-      </View>
-
-      {refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4A5D23" />
-          <Text style={styles.loadingText}>Refreshing requests...</Text>
-        </View>
-      ) : pendingOrders.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <MaterialIcons name="local-taxi" size={80} color="#E0E0E0" />
-          <Text style={styles.emptyText}>
-            No available requests at the moment
-          </Text>
-          <Text style={styles.emptySubtext}>
-            Pull down to refresh or check back later
-          </Text>
-          <TouchableOpacity
-            style={styles.switchModeButton}
-            onPress={() => setShowDriverControls(false)}
-          >
-            <Text style={styles.switchModeButtonText}>
-              Switch to Passenger Mode
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <ScrollView
-          style={{ flex: 1, width: "100%" }}
-          contentContainerStyle={{ padding: 16, paddingBottom: 30 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={refreshOrdersList}
-              colors={["#4A5D23"]}
-            />
-          }
-        >
-          {pendingOrders.map((request) => (
-            <RequestItem
-              key={request.id}
-              request={request}
-              onAccept={handleAcceptRequest}
-            />
-          ))}
-        </ScrollView>
-      )}
-    </View>
-  );
-
-  // Add keyboard listeners
-  useEffect(() => {
-    const keyboardWillShowListener = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      (e) => {
-        setKeyboardVisible(true);
-        setKeyboardHeight(e.endCoordinates.height);
-
-        // Animate the bottom panel up
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-
-        // Scroll to the input field after a short delay
-        setTimeout(() => {
-          if (destinationInputRef.current && scrollViewRef.current) {
-            scrollViewRef.current.scrollToEnd({ animated: true });
-          }
-        }, 100);
-      }
-    );
-
-    const keyboardWillHideListener = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      () => {
-        setKeyboardVisible(false);
-        setKeyboardHeight(0);
-
-        // Animate the bottom panel down
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      }
-    );
-
-    return () => {
-      keyboardWillShowListener.remove();
-      keyboardWillHideListener.remove();
-    };
-  }, []);
 
   // Main component render
   return (
@@ -1482,20 +1612,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E0E0E0",
   },
-  carImage: {
-    width: 70,
-    height: 45,
-    marginBottom: 10,
-    resizeMode: "contain",
-  },
   carTypeText: {
     fontSize: 14,
     fontWeight: "500",
     marginBottom: 4,
-  },
-  carPrice: {
-    fontSize: 16,
-    fontWeight: "bold",
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1639,12 +1759,6 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 12,
   },
-  carTypeName: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#333333",
-    marginBottom: 4,
-  },
   selectedCarTypeName: {
     color: "#FFFFFF",
   },
@@ -1663,6 +1777,141 @@ const styles = StyleSheet.create({
   },
   selectedCarTypePrice: {
     color: "#FFFFFF",
+  },
+  orderSummary: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 16,
+    marginBottom: 16,
+    width: "100%",
+  },
+  priceContainer: {
+    flex: 1,
+  },
+  priceLabel: {
+    fontSize: 14,
+    color: "#888888",
+    marginBottom: 4,
+  },
+  priceValue: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333333",
+  },
+  orderButtonNew: {
+    backgroundColor: "#212121",
+    width: 160,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carTypesContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 20,
+    width: "100%",
+  },
+  distanceInfoContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F5F5",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    justifyContent: "center",
+    width: "100%",
+  },
+  distanceInfoText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+    marginLeft: 8,
+  },
+  loadingButton: {
+    opacity: 0.7,
+  },
+  carPriceContainer: {
+    alignItems: "flex-end",
+  },
+  basePricePerKm: {
+    fontSize: 12,
+    color: "#888888",
+    marginTop: 4,
+  },
+  selectedBasePricePerKm: {
+    color: "#FFFFFF",
+    opacity: 0.8,
+  },
+  carSelectionPanel: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "white",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 36,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: -3,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4.65,
+    elevation: 6,
+  },
+  carSelectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 20,
+    color: "#000",
+  },
+  carCardsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 30,
+  },
+  carCard: {
+    width: "30%",
+    backgroundColor: "white",
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 5,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#EEEEEE",
+  },
+  carCardSelected: {
+    backgroundColor: "#F9F9F9",
+    borderColor: "#DDDDDD",
+  },
+  carImage: {
+    width: 70,
+    height: 45,
+    resizeMode: "contain",
+    marginVertical: 15,
+  },
+  carTypeName: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#333",
+    marginBottom: 5,
+  },
+  carPrice: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  sectionHeaderText: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 15,
+    color: "#333",
   },
 });
 

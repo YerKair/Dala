@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, Image, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { getStoreImage, saveStoreImage } from "../utils/imageHelper";
+import { getStoreImage, saveStoreImage } from "../utils/helpers";
 
 interface Restaurant {
   id: string;

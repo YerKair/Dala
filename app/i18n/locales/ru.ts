@@ -216,6 +216,48 @@ export default {
     anonymousUser: "Анонимный пользователь",
     acceptRequest: "Принять запрос",
     leaveActiveTrip: "Ваша поездка все еще активна. Вы хотите покинуть экран?",
+    carTypes: {
+      economy: {
+        name: "Эконом",
+        description: "Доступные поездки для повседневных нужд",
+      },
+      comfort: {
+        name: "Комфорт",
+        description: "Более комфортные автомобили для приятной поездки",
+      },
+      premium: {
+        name: "Премиум",
+        description: "Автомобили класса люкс для особых случаев",
+      },
+      arrivalTime: "Прибытие через {{time}} мин",
+    },
+    alerts: {
+      error: "Ошибка",
+      carSelectionError:
+        "Не удалось выбрать тип автомобиля. Пожалуйста, попробуйте снова.",
+    },
+    ordering: "Заказ...",
+    confirmOrder: "Подтвердить заказ",
+    orderTaxi: "Заказать такси",
+    cashPayment: "Оплата наличными",
+    paymentMethod: "Способ оплаты",
+    selectCarType: "Выберите тип автомобиля",
+    totalFare: "Итоговая стоимость",
+    driverControls: {
+      title: "Управление водителя",
+      viewRequests: "Просмотр заказов",
+    },
+    currentLocation: "Ваше текущее местоположение",
+    fetchingLocation: "Получение вашего местоположения...",
+    pickupLocation: "Место посадки",
+    destination: "Пункт назначения",
+    enterDestination: "Введите пункт назначения",
+    locationPermission: {
+      denied: "Доступ к геолокации запрещен",
+      message:
+        "Нам нужно ваше местоположение, чтобы найти поездки рядом с вами. Пожалуйста, включите службы геолокации для этого приложения в настройках вашего устройства.",
+      enable: "Включить геолокацию",
+    },
 
     // Trip screen
     trip: {

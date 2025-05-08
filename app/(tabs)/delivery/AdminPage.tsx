@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { pickImage, saveStoreImage, getStoreImage } from "./utils/imageHelper";
+import { pickImage, saveStoreImage, getStoreImage } from "./utils/helpers";
 import { useAuth } from "../../auth/AuthContext"; // Import the auth context
 
 // Store interface

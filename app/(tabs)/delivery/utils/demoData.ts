@@ -1,3 +1,14 @@
+/**
+ * FALLBACK DEMO DATA
+ *
+ * This file contains demo data that should only be used:
+ * 1. As fallback when the API is unavailable
+ * 2. For type definitions that match the backend models
+ * 3. For development and testing purposes
+ *
+ * The actual application should use real API data whenever possible.
+ */
+
 // Демонстрационные данные для приложения доставки
 
 export interface DemoCategory {

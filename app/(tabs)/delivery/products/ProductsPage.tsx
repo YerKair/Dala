@@ -19,16 +19,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
-import {
-  pickImage,
-  saveProductImage,
-  getProductImage,
-} from "../utils/imageHelper";
+import { getProductImage } from "../utils/helpers";
 import { useApi } from "../utils/apiService";
 import { useAuth } from "../../../auth/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
-import ImageManager from "../utils/components/ImageManager";
 
 // Product interface
 interface Product {
@@ -275,6 +270,45 @@ export default function ProductsPage() {
   const loadCategories = async (force = false) => {
     try {
       setIsLoadingCategories(true);
+      setError(null);
+
+      // Используем ApiService вместо прямых fetch запросов
+      try {
+        console.log("Using ApiService to load categories");
+        const categoriesData = await api.getCategories();
+
+        if (Array.isArray(categoriesData) && categoriesData.length > 0) {
+          console.log(
+            "Categories loaded via ApiService:",
+            categoriesData.length
+          );
+
+          // Загружаем изображения для каждой категории из AsyncStorage
+          const categoriesWithImages = await Promise.all(
+            categoriesData.map(async (category: Category) => {
+              try {
+                const imageUri = await AsyncStorage.getItem(
+                  `category_image_${storeId}_${category.id}`
+                );
+                return { ...category, image: imageUri || undefined };
+              } catch (e) {
+                console.error("Error loading category image:", e);
+                return category;
+              }
+            })
+          );
+
+          setCategories(categoriesWithImages);
+          return;
+        } else {
+          console.warn("ApiService returned empty categories array");
+        }
+      } catch (apiError) {
+        console.error("Error using ApiService for categories:", apiError);
+      }
+
+      // Fallback: Используем прямой fetch если ApiService не сработал
+      console.log("Falling back to direct fetch for categories");
 
       // Get token for authorization
       let token = await AsyncStorage.getItem("token");
@@ -282,31 +316,46 @@ export default function ProductsPage() {
         token = await AsyncStorage.getItem("userToken");
       }
 
+      if (!token) {
+        console.log("No auth token found for categories request");
+      } else {
+        console.log("Using auth token:", token.substring(0, 10) + "...");
+      }
+
       // Add timestamp to URL to prevent caching
-      const timestamp = force ? `&_t=${Date.now()}` : "";
-      const response = await fetch(
-        `http://192.168.0.117:8000/api/categories${timestamp}`,
-        {
-          headers: token
-            ? {
-                Accept: "application/json",
-                Authorization: `Bearer ${token}`,
-              }
-            : {
-                Accept: "application/json",
-              },
-        }
-      );
+      const timestamp = force ? `?_t=${Date.now()}` : "";
+      const url = `http://192.168.0.117:8000/api/categories${timestamp}`;
+      console.log("Loading categories from URL:", url);
+
+      const response = await fetch(url, {
+        headers: token
+          ? {
+              Accept: "application/json",
+              Authorization: `Bearer ${token}`,
+            }
+          : {
+              Accept: "application/json",
+            },
+      });
+
+      console.log("Categories response status:", response.status);
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `HTTP error! status: ${response.status}, response:`,
+          errorText
+        );
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log("Categories loaded:", data.length);
+      console.log("Categories loaded successfully:", data.length);
       setCategories(data);
     } catch (error) {
       console.error("Error loading categories:", error);
+      // Fallback to mock data
+      console.log("Using fallback category data");
       setCategories([
         { id: 1, name: "Электроника" },
         { id: 2, name: "Одежда" },
@@ -314,6 +363,7 @@ export default function ProductsPage() {
         { id: 4, name: "Транспорт" },
         { id: 5, name: "Недвижимость" },
       ]);
+      setError("Не удалось загрузить категории с сервера");
     } finally {
       setIsLoadingCategories(false);
     }
@@ -322,11 +372,64 @@ export default function ProductsPage() {
   const loadProducts = async (force = false) => {
     try {
       setIsLoading(true);
+      setError(null);
+
+      // Используем ApiService вместо прямых fetch запросов
+      try {
+        console.log("Using ApiService to load products");
+
+        // Строим параметры запроса для ApiService
+        const page = currentPage;
+        const categoryFilter = selectedCategory
+          ? `&category_id=${selectedCategory}`
+          : "";
+
+        const productsData = await api.getProducts(
+          page,
+          categoryFilter,
+          storeId
+        );
+
+        if (productsData && productsData.data) {
+          console.log(
+            `Products loaded via ApiService: ${productsData.data.length}`
+          );
+          setProducts(productsData.data);
+          setTotalPages(productsData.last_page || 1);
+
+          if (productsData.data.length > 0 && productsData.data[0].seller) {
+            setStores([
+              {
+                id: productsData.data[0].seller.id.toString(),
+                name: productsData.data[0].seller.name,
+                category: "Seller",
+              },
+            ]);
+          }
+          return;
+        } else {
+          console.warn("ApiService returned empty products data");
+        }
+      } catch (apiError) {
+        console.error("Error using ApiService for products:", apiError);
+      }
+
+      // Fallback: Используем прямой fetch если ApiService не сработал
+      console.log("Falling back to direct fetch for products");
 
       // Get token for authorization
       let token = await AsyncStorage.getItem("token");
       if (!token) {
         token = await AsyncStorage.getItem("userToken");
+      }
+
+      if (!token) {
+        console.log("No auth token found for products request");
+      } else {
+        console.log(
+          "Using auth token for products:",
+          token.substring(0, 10) + "..."
+        );
       }
 
       // Build URL with pagination and category filter
@@ -342,6 +445,8 @@ export default function ProductsPage() {
         url += `&_t=${Date.now()}`;
       }
 
+      console.log("Loading products from URL:", url);
+
       const response = await fetch(url, {
         headers: token
           ? {
@@ -353,14 +458,23 @@ export default function ProductsPage() {
             },
       });
 
+      console.log("Products response status:", response.status);
+
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `HTTP error loading products! status: ${response.status}, response:`,
+          errorText
+        );
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const responseData = await response.json();
 
       if (responseData && responseData.data) {
-        console.log(`Products loaded: ${responseData.data.length}`);
+        console.log(
+          `Products loaded successfully: ${responseData.data.length}`
+        );
         setProducts(responseData.data);
         setTotalPages(responseData.last_page || 1);
 
@@ -376,7 +490,8 @@ export default function ProductsPage() {
       }
     } catch (error) {
       console.error("Error loading products:", error);
-      Alert.alert("Error", "Failed to load products");
+      Alert.alert("Ошибка", "Не удалось загрузить товары");
+      setError("Не удалось загрузить товары с сервера");
     } finally {
       setIsLoading(false);
     }
@@ -388,35 +503,58 @@ export default function ProductsPage() {
     initPage();
   };
 
-  // Функция для выбора изображения
-  const handlePickImage = async () => {
+  // Helper function to pick images
+  const pickImage = async (): Promise<string | null> => {
     try {
-      // Запрос разрешения на доступ к медиа-библиотеке
       const { status } =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
-
       if (status !== "granted") {
-        Alert.alert("Ошибка", "Нам нужно разрешение на доступ к галерее");
-        return;
+        Alert.alert(
+          "Требуется разрешение",
+          "Нужен доступ к галерее для выбора изображения"
+        );
+        return null;
       }
 
-      // Открываем библиотеку изображений
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.7,
-        base64: true,
+        aspect: [1, 1],
+        quality: 0.8,
       });
 
       if (!result.canceled && result.assets && result.assets[0]) {
-        const selectedAsset = result.assets[0];
+        return result.assets[0].uri;
+      }
+      return null;
+    } catch (error) {
+      console.error("Error picking image:", error);
+      Alert.alert("Ошибка", "Не удалось загрузить изображение");
+      return null;
+    }
+  };
 
-        if (selectedAsset.base64) {
-          setProductImage(`data:image/jpeg;base64,${selectedAsset.base64}`);
-        } else if (selectedAsset.uri) {
-          setProductImage(selectedAsset.uri);
-        }
+  // Helper function to save product image to async storage
+  const saveProductImage = async (
+    productId: string,
+    imageUri: string
+  ): Promise<boolean> => {
+    try {
+      const key = `product_image_${productId}`;
+      await AsyncStorage.setItem(key, imageUri);
+      return true;
+    } catch (error) {
+      console.error("Error saving product image:", error);
+      return false;
+    }
+  };
+
+  // Функция для выбора изображения
+  const handlePickImage = async () => {
+    try {
+      const imageUri = await pickImage();
+      if (imageUri) {
+        setProductImage(imageUri);
       }
     } catch (error) {
       console.error("Ошибка выбора изображения:", error);
@@ -1161,7 +1299,9 @@ export default function ProductsPage() {
                     />
                     <TouchableOpacity
                       style={styles.changeImageButton}
-                      onPress={handlePickImage}
+                      onPress={() => {
+                        handlePickImage();
+                      }}
                     >
                       <Text style={styles.changeImageText}>Изменить</Text>
                     </TouchableOpacity>
@@ -1169,7 +1309,9 @@ export default function ProductsPage() {
                 ) : (
                   <TouchableOpacity
                     style={styles.imagePicker}
-                    onPress={handlePickImage}
+                    onPress={() => {
+                      handlePickImage();
+                    }}
                   >
                     <Feather name="image" size={24} color="#4A5D23" />
                     <Text style={styles.imagePickerText}>

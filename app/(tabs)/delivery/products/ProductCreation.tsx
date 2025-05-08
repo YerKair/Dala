@@ -20,10 +20,12 @@ import { Ionicons, Feather } from "@expo/vector-icons";
 import { useApi } from "../utils/apiService";
 import { useAuth } from "../../../auth/AuthContext";
 import SimpleImagePicker from "../utils/components/SimpleImagePicker";
-import { saveImage } from "../utils/simpleImageStorage";
-import ImageGallery from "../utils/components/ImageGallery";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getProductImage, getProductGallery } from "../utils/imageHelper";
+import {
+  getProductImage,
+  getProductGallery,
+  saveProductImage,
+} from "../utils/helpers";
 
 // Определим интерфейс для категории
 interface Category {
@@ -41,13 +43,16 @@ export default function ProductCreation() {
     : params.seller_id
     ? String(params.seller_id)
     : undefined;
+  const initialCategoryId = params.categoryId
+    ? String(params.categoryId)
+    : undefined;
   const api = useApi();
   const { isAuthenticated } = useAuth();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
-  const [categoryId, setCategoryId] = useState("1");
+  const [categoryId, setCategoryId] = useState(initialCategoryId || "1");
   const [status, setStatus] = useState("active");
   const [productImage, setProductImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -194,7 +199,7 @@ export default function ProductCreation() {
 
       // Save image to local storage if exists
       if (productImage) {
-        await saveImage(productImage, data.id);
+        await saveProductImage(productImage, data.id);
       }
 
       Alert.alert("Успех", "Продукт успешно создан", [
@@ -381,11 +386,6 @@ export default function ProductCreation() {
                 Проверить работу с изображением
               </Text>
             </TouchableOpacity>
-          </View>
-
-          <Text style={styles.inputLabel}>Галерея изображений</Text>
-          <View style={styles.gallerySection}>
-            <ImageGallery productId={productId} maxImages={5} />
           </View>
 
           <Text style={styles.inputLabel}>Статус</Text>

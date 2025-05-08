@@ -11,10 +11,10 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import {
-  saveImage,
-  getImage,
-  removeImage,
-} from "./delivery/utils/simpleImageStorage";
+  saveProductImage,
+  getProductImage,
+  saveProductImage as removeImage,
+} from "./delivery/utils/helpers";
 
 export default function SimpleImagePickerTest() {
   const [image, setImage] = useState<string | null>(null);
@@ -32,7 +32,7 @@ export default function SimpleImagePickerTest() {
     setLoading(true);
     try {
       // Получаем изображение по ID
-      const savedImage = await getImage(productId);
+      const savedImage = await getProductImage(productId);
       if (savedImage) {
         setImage(savedImage);
         console.log("Изображение найдено и загружено");
@@ -79,7 +79,7 @@ export default function SimpleImagePickerTest() {
 
         // Сохраняем изображение
         setImage(imageUri);
-        await saveImage(productId, imageUri);
+        await saveProductImage(productId, imageUri);
         alert("Изображение сохранено");
       }
     } catch (error) {
@@ -95,7 +95,8 @@ export default function SimpleImagePickerTest() {
     }
 
     try {
-      await removeImage(productId);
+      // В данном случае просто сохраняем null, что эквивалентно удалению
+      await saveProductImage(productId, "");
       setImage(null);
       alert("Изображение удалено");
     } catch (error) {

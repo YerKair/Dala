@@ -8,21 +8,23 @@ import {
   FlatList,
   ActivityIndicator,
   Image,
+  Alert,
 } from "react-native";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
-import { getStoreImage } from "./utils/imageHelper";
+import { getStoreImage } from "./utils/helpers";
+import { useApi } from "./utils/apiService";
 
 // Интерфейс для магазина
 interface Store {
   id: string;
   name: string;
   description: string;
-  category: string;
-  address: string;
-  isPopular: boolean;
-  isRecommended: boolean;
+  category?: string;
+  address?: string;
+  isPopular?: boolean;
+  isRecommended?: boolean;
 }
 
 // Компонент карточки магазина с поддержкой изображений
@@ -73,6 +75,7 @@ export default function CategoryStoresPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const params = useLocalSearchParams();
   const { category } = params;
+  const api = useApi();
 
   useEffect(() => {
     loadStores();
@@ -83,45 +86,55 @@ export default function CategoryStoresPage() {
     store.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Load stores from API or local data
+  // Load stores from API
   const loadStores = async () => {
     setLoading(true);
     try {
-      // In a real app, this would be an API call
-      // For now, use mock data
-      const mockStores: Store[] = [
-        {
-          id: "1",
-          name: "Свежие продукты",
-          description: "Всегда свежие продукты с фермы",
-          category: "Продукты",
-          address: "ул. Пушкина, 10",
-          isPopular: true,
-          isRecommended: true,
-        },
-        {
-          id: "2",
-          name: "Эко маркет",
-          description: "Экологически чистые продукты",
-          category: "Продукты",
-          address: "ул. Ленина, 15",
-          isPopular: true,
-          isRecommended: false,
-        },
-        {
-          id: "3",
-          name: "Handmade Craft",
-          description: "Товары ручной работы",
-          category: "Хэндмейд",
-          address: "ул. Гагарина, 25",
-          isPopular: false,
-          isRecommended: true,
-        },
-      ];
+      // Fetch restaurants from API
+      const response = await api.getRestaurants();
+      console.log("API response:", response);
 
-      setStores(mockStores);
+      let storesList: Store[] = [];
+
+      if (Array.isArray(response)) {
+        // Map the API response to our Store interface
+        storesList = response.map((item: any) => ({
+          id: item.id.toString(),
+          name: item.name,
+          description: item.description || "No description available",
+          category: item.category?.name || (category as string) || "General",
+          address: item.address || "No address available",
+          isPopular: item.is_popular || false,
+          isRecommended: item.is_recommended || false,
+        }));
+      } else if (response.data && Array.isArray(response.data)) {
+        // For paginated responses
+        storesList = response.data.map((item: any) => ({
+          id: item.id.toString(),
+          name: item.name,
+          description: item.description || "No description available",
+          category: item.category?.name || (category as string) || "General",
+          address: item.address || "No address available",
+          isPopular: item.is_popular || false,
+          isRecommended: item.is_recommended || false,
+        }));
+      }
+
+      // If category is specified, filter stores by category
+      if (category) {
+        storesList = storesList.filter(
+          (store) =>
+            store.category?.toLowerCase() === category.toString().toLowerCase()
+        );
+      }
+
+      setStores(storesList);
     } catch (error) {
       console.error("Error loading stores:", error);
+      Alert.alert(
+        "Error",
+        "Failed to load stores. Check your internet connection."
+      );
     } finally {
       setLoading(false);
     }
