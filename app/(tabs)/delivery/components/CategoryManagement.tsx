@@ -30,7 +30,7 @@ interface CategoryManagementProps {
   storeId?: string;
 }
 
-const API_BASE_URL = "http://192.168.0.117:8000/api";
+const API_BASE_URL = "http://192.168.0.113:8000/api";
 
 // Ключи для AsyncStorage с учетом storeId
 const getCategoriesKey = (storeId: string) => `stored_categories_${storeId}`;
@@ -150,7 +150,9 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [16, 9],
-        quality: 0.8,
+        quality: 0.3,
+        exif: false,
+        base64: false,
       });
 
       if (!result.canceled && result.assets && result.assets[0]) {
@@ -227,6 +229,64 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
 
       console.log("Category creation response status:", response.status);
 
+      // Handle 413 Entity Too Large error
+      if (response.status === 413) {
+        Alert.alert(
+          "Ошибка",
+          "Изображение слишком большое. Пожалуйста, выберите изображение меньшего размера или качества.",
+          [
+            { text: "Отмена", style: "cancel" },
+            {
+              text: "Только текст",
+              onPress: async () => {
+                // Try creating just with text without the image
+                try {
+                  const textOnlyFormData = new FormData();
+                  textOnlyFormData.append("name", newCategoryName.trim());
+                  textOnlyFormData.append("store_id", storeId);
+
+                  const textOnlyResponse = await fetch(
+                    `${API_BASE_URL}/categories`,
+                    {
+                      method: "POST",
+                      headers: {
+                        Accept: "application/json",
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "multipart/form-data",
+                      },
+                      body: textOnlyFormData,
+                    }
+                  );
+
+                  if (textOnlyResponse.ok) {
+                    const data = await textOnlyResponse.json();
+                    setModalVisible(false);
+                    setNewCategoryName("");
+                    setCategoryImage(null);
+                    loadCategories();
+                    Alert.alert("Успех", "Категория создана без изображения");
+                  } else {
+                    throw new Error(
+                      `HTTP error! status: ${textOnlyResponse.status}`
+                    );
+                  }
+                } catch (textError) {
+                  console.error(
+                    "Error creating category text only:",
+                    textError
+                  );
+                  Alert.alert("Ошибка", "Не удалось создать категорию");
+                } finally {
+                  setLoading(false);
+                }
+              },
+            },
+          ]
+        );
+        setLoading(false);
+        return;
+      }
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error(
@@ -291,6 +351,24 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
         token.substring(0, 10) + "..."
       );
 
+      // First, try to update the category data without the image
+      const categoryData = {
+        name: newCategoryName.trim(),
+        store_id: storeId,
+        _method: "PUT",
+      };
+
+      console.log(
+        "Category update request URL:",
+        `${API_BASE_URL}/categories/${editingCategory.id}`
+      );
+      console.log("Category update request data:", {
+        hasImage: !!categoryImage,
+        name: newCategoryName.trim(),
+        store_id: storeId,
+      });
+
+      // Create form data for the request
       const formData = new FormData();
       formData.append("name", newCategoryName.trim());
       formData.append("store_id", storeId);
@@ -303,16 +381,6 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
           name: "category.jpg",
         } as any);
       }
-
-      console.log(
-        "Category update request URL:",
-        `${API_BASE_URL}/categories/${editingCategory.id}`
-      );
-      console.log("Category update request data:", {
-        name: newCategoryName.trim(),
-        store_id: storeId,
-        hasImage: !!categoryImage,
-      });
 
       const response = await fetch(
         `${API_BASE_URL}/categories/${editingCategory.id}`,
@@ -328,6 +396,65 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
       );
 
       console.log("Category update response status:", response.status);
+
+      // Handle 413 Entity Too Large error
+      if (response.status === 413) {
+        Alert.alert(
+          "Ошибка",
+          "Изображение слишком большое. Пожалуйста, выберите изображение меньшего размера или качества.",
+          [
+            { text: "Отмена", style: "cancel" },
+            {
+              text: "Только текст",
+              onPress: async () => {
+                // Try updating just the text without the image
+                try {
+                  const textOnlyFormData = new FormData();
+                  textOnlyFormData.append("name", newCategoryName.trim());
+                  textOnlyFormData.append("store_id", storeId);
+                  textOnlyFormData.append("_method", "PUT");
+
+                  const textOnlyResponse = await fetch(
+                    `${API_BASE_URL}/categories/${editingCategory.id}`,
+                    {
+                      method: "POST",
+                      headers: {
+                        Accept: "application/json",
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "multipart/form-data",
+                      },
+                      body: textOnlyFormData,
+                    }
+                  );
+
+                  if (textOnlyResponse.ok) {
+                    setModalVisible(false);
+                    setEditingCategory(null);
+                    setNewCategoryName("");
+                    setCategoryImage(null);
+                    loadCategories();
+                    Alert.alert("Успех", "Категория обновлена без изображения");
+                  } else {
+                    throw new Error(
+                      `HTTP error! status: ${textOnlyResponse.status}`
+                    );
+                  }
+                } catch (textError) {
+                  console.error(
+                    "Error updating category text only:",
+                    textError
+                  );
+                  Alert.alert("Ошибка", "Не удалось обновить категорию");
+                } finally {
+                  setLoading(false);
+                }
+              },
+            },
+          ]
+        );
+        setLoading(false);
+        return;
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -471,7 +598,9 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.3,
+      exif: false,
+      base64: false,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {

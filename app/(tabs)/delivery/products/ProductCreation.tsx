@@ -89,7 +89,7 @@ export default function ProductCreation() {
 
     try {
       const response = await fetch(
-        `http://192.168.0.117:8000/api/users/${seller_id}`
+        `http://192.168.0.113:8000/api/users/${seller_id}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -111,7 +111,7 @@ export default function ProductCreation() {
       }
 
       // Запрашиваем категории из API
-      const response = await fetch("http://192.168.0.117:8000/api/categories", {
+      const response = await fetch("http://192.168.0.113:8000/api/categories", {
         headers: token
           ? {
               Accept: "application/json",
@@ -182,11 +182,22 @@ export default function ProductCreation() {
         } as any);
       }
 
-      const response = await fetch("http://192.168.0.117:8000/api/products", {
+      // Получаем токен для авторизации
+      let token = await AsyncStorage.getItem("token");
+      if (!token) {
+        token = await AsyncStorage.getItem("userToken");
+      }
+
+      const response = await fetch("http://192.168.0.113:8000/api/products", {
         method: "POST",
-        headers: {
-          Accept: "application/json",
-        },
+        headers: token
+          ? {
+              Accept: "application/json",
+              Authorization: `Bearer ${token}`,
+            }
+          : {
+              Accept: "application/json",
+            },
         body: formData,
       });
 
@@ -206,13 +217,14 @@ export default function ProductCreation() {
         {
           text: "OK",
           onPress: () => {
-            // Navigate back with force refresh
+            // Navigate back with force refresh and category filter
             router.push({
               pathname: "/delivery/products/ProductsPage",
               params: {
                 storeId: seller_id,
                 refresh: Date.now(),
                 forceRefresh: "true",
+                categoryId: categoryId,
               },
             });
           },

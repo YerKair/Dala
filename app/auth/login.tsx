@@ -63,7 +63,7 @@ const LoginScreen: React.FC = () => {
 
     try {
       // Прямой запрос к API без абстракций - для отладки
-      const response = await fetch("http://192.168.0.117:8000/api/login", {
+      const response = await fetch("http://192.168.0.113:8000/api/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

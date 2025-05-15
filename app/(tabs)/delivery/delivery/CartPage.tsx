@@ -162,7 +162,7 @@ const CartPage: React.FC = () => {
         throw new Error("Authentication token not found");
       }
 
-      const response = await fetch("http://192.168.0.117:8000/api/cart", {
+      const response = await fetch("http://192.168.0.113:8000/api/cart", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -270,7 +270,7 @@ const CartPage: React.FC = () => {
             console.log("Clearing cart...");
 
             // Call the API to clear the cart - using DELETE method
-            const response = await fetch("http://192.168.0.117:8000/api/cart", {
+            const response = await fetch("http://192.168.0.113:8000/api/cart", {
               method: "DELETE",
               headers: {
                 "Content-Type": "application/json",

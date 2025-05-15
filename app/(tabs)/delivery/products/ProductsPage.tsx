@@ -172,11 +172,45 @@ const ProductItem = ({
   );
 };
 
+// Компонент для отображения элемента категории
+const CategoryItem = ({
+  category,
+  isSelected,
+  onPress,
+}: {
+  category: Category | null;
+  isSelected: boolean;
+  onPress: () => void;
+}) => {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.categoryFilterItem,
+        isSelected && styles.categoryFilterItemActive,
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <Text
+        style={[
+          styles.categoryFilterText,
+          isSelected && styles.categoryFilterTextActive,
+        ]}
+      >
+        {category ? category.name : "Все"}
+      </Text>
+    </TouchableOpacity>
+  );
+};
+
 export default function ProductsPage() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const storeId = params.storeId ? String(params.storeId) : undefined;
   const refresh = params.refresh ? String(params.refresh) : undefined;
+  const initialCategoryId = params.categoryId
+    ? String(params.categoryId)
+    : undefined;
   const api = useApi();
   const { isAuthenticated } = useAuth();
   const isAuthenticating = useRef(false);
@@ -190,7 +224,9 @@ export default function ProductsPage() {
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [status, setStatus] = useState("active");
-  const [categoryId, setCategoryId] = useState<string>("1");
+  const [categoryId, setCategoryId] = useState<string>(
+    initialCategoryId || "1"
+  );
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [productImage, setProductImage] = useState<string | null>(null);
@@ -198,7 +234,10 @@ export default function ProductsPage() {
   const [addingToCart, setAddingToCart] = useState<string | null>(null);
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(
+    params.categoryId ? String(params.categoryId) : null
+  );
+  const [categoryName, setCategoryName] = useState<string>("");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     title: "",
@@ -222,9 +261,90 @@ export default function ProductsPage() {
 
   useEffect(() => {
     if (storeId) {
+      // Логируем параметры для отладки
+      console.log("URL params:", {
+        storeId,
+        categoryId: params.categoryId,
+        refresh,
+        fromScreen: params.fromScreen,
+      });
+
+      // Если мы заходим на страницу без указания категории, сбрасываем выбранную категорию
+      if (!params.categoryId) {
+        console.log("No category specified in params, resetting to All");
+        setSelectedCategory(null);
+        setCategoryName("");
+      } else {
+        console.log(`Category specified in params: ${params.categoryId}`);
+
+        // Устанавливаем ID категории при первой загрузке
+        setSelectedCategory(params.categoryId as string);
+
+        // Попробуем найти название категории в уже загруженных категориях
+        if (categories.length > 0) {
+          const category = categories.find(
+            (cat) => cat.id.toString() === params.categoryId
+          );
+          if (category) {
+            console.log(`Found category name on init: ${category.name}`);
+            setCategoryName(category.name);
+          }
+        }
+      }
+
       initPage();
     }
-  }, [storeId, refresh]);
+  }, [storeId, refresh, params.categoryId]);
+
+  // Добавляем эффект для обновления названия категории при изменении списка категорий
+  useEffect(() => {
+    if (categories.length > 0 && selectedCategory) {
+      const category = categories.find(
+        (cat: Category) => cat.id.toString() === selectedCategory
+      );
+      if (category) {
+        console.log(`Updating category name to: ${category.name}`);
+        setCategoryName(category.name);
+      }
+    } else if (categories.length > 0 && !selectedCategory) {
+      setCategoryName("");
+    }
+  }, [categories, selectedCategory]);
+
+  // Загрузка продуктов при изменении страницы
+  useEffect(() => {
+    if (storeId && !forceRefreshRef.current) {
+      console.log(`Page changed to: ${currentPage}, loading products...`);
+      // Используем текущую выбранную категорию
+      loadProductsWithCategory(selectedCategory);
+    }
+  }, [currentPage]);
+
+  // Также добавим эффект для реагирования на изменение selectedCategory
+  useEffect(() => {
+    if (storeId && selectedCategory !== undefined) {
+      console.log(
+        `Selected category changed to: ${selectedCategory}, reloading products...`
+      );
+
+      // При изменении выбранной категории обновляем отображаемое имя категории
+      if (selectedCategory) {
+        const category = categories.find(
+          (cat) => cat.id.toString() === selectedCategory
+        );
+        if (category) {
+          console.log(
+            `Updating category name in category change effect: ${category.name}`
+          );
+          setCategoryName(category.name);
+        }
+      } else {
+        setCategoryName("");
+      }
+
+      loadProductsWithCategory(selectedCategory);
+    }
+  }, [selectedCategory, storeId]);
 
   const initPage = async () => {
     if (!storeId) return;
@@ -236,7 +356,7 @@ export default function ProductsPage() {
       // Загружаем магазины сразу
       try {
         const response = await fetch(
-          `http://192.168.0.117:8000/api/users/${storeId}`
+          `http://192.168.0.113:8000/api/users/${storeId}`
         );
         if (response.ok) {
           const data = await response.json();
@@ -252,13 +372,11 @@ export default function ProductsPage() {
         console.error("Error loading store:", error);
       }
 
-      // Force reload data if refresh parameter is present
-      if (refresh || forceRefreshRef.current) {
-        forceRefreshRef.current = false;
-        await Promise.all([loadCategories(true), loadProducts(true)]);
-      } else {
-        await Promise.all([loadCategories(), loadProducts()]);
-      }
+      // Сначала загружаем категории
+      await loadCategories(true);
+
+      // Затем загружаем продукты с текущей категорией
+      await loadProductsWithCategory(selectedCategory);
     } catch (error) {
       console.error("Error initializing page:", error);
       setError("Не удалось загрузить данные");
@@ -299,6 +417,16 @@ export default function ProductsPage() {
           );
 
           setCategories(categoriesWithImages);
+
+          // Обновляем название текущей категории, если она выбрана
+          if (selectedCategory) {
+            const category = categoriesWithImages.find(
+              (cat: Category) => cat.id.toString() === selectedCategory
+            );
+            if (category) {
+              setCategoryName(category.name);
+            }
+          }
           return;
         } else {
           console.warn("ApiService returned empty categories array");
@@ -324,7 +452,7 @@ export default function ProductsPage() {
 
       // Add timestamp to URL to prevent caching
       const timestamp = force ? `?_t=${Date.now()}` : "";
-      const url = `http://192.168.0.117:8000/api/categories${timestamp}`;
+      const url = `http://192.168.0.113:8000/api/categories${timestamp}`;
       console.log("Loading categories from URL:", url);
 
       const response = await fetch(url, {
@@ -352,6 +480,16 @@ export default function ProductsPage() {
       const data = await response.json();
       console.log("Categories loaded successfully:", data.length);
       setCategories(data);
+
+      // Обновляем название текущей категории, если она выбрана
+      if (selectedCategory) {
+        const category = data.find(
+          (cat: Category) => cat.id.toString() === selectedCategory
+        );
+        if (category) {
+          setCategoryName(category.name);
+        }
+      }
     } catch (error) {
       console.error("Error loading categories:", error);
       // Fallback to mock data
@@ -369,132 +507,229 @@ export default function ProductsPage() {
     }
   };
 
-  const loadProducts = async (force = false) => {
+  // Add category filter handler
+  const handleCategoryChange = (categoryId: string) => {
+    // Преобразуем пустую строку в null для категории "Все"
+    const newCategoryValue = categoryId === "" ? null : categoryId;
+
+    console.log(
+      `Changing category from ${selectedCategory} to ${newCategoryValue}`
+    );
+
+    // Немедленно обновляем название категории
+    if (categoryId) {
+      const category = categories.find(
+        (cat) => cat.id.toString() === categoryId
+      );
+      if (category) {
+        console.log(`Updating category name to: ${category.name}`);
+        setCategoryName(category.name);
+      } else {
+        console.log(`Category with ID ${categoryId} not found`);
+        setCategoryName("");
+      }
+    } else {
+      console.log("Setting category name to empty (All categories)");
+      setCategoryName("");
+    }
+
+    // Показываем индикатор загрузки
+    setIsLoading(true);
+
+    // Сбрасываем страницу и обновляем категорию
+    setCurrentPage(1);
+    setSelectedCategory(newCategoryValue);
+
+    // Немедленно загружаем продукты с новой категорией
+    // Используем непосредственно значение newCategoryValue вместо selectedCategory,
+    // так как setState работает асинхронно
+    loadProductsWithCategory(newCategoryValue);
+  };
+
+  // Функция для загрузки продуктов с конкретной категорией
+  const loadProductsWithCategory = async (categoryValue: string | null) => {
+    if (!storeId) return;
+
     try {
       setIsLoading(true);
       setError(null);
 
-      // Используем ApiService вместо прямых fetch запросов
-      try {
-        console.log("Using ApiService to load products");
-
-        // Строим параметры запроса для ApiService
-        const page = currentPage;
-        const categoryFilter = selectedCategory
-          ? `&category_id=${selectedCategory}`
-          : "";
-
-        const productsData = await api.getProducts(
-          page,
-          categoryFilter,
-          storeId
+      // Обновляем имя категории
+      if (categoryValue) {
+        const category = categories.find(
+          (cat) => cat.id.toString() === categoryValue
         );
-
-        if (productsData && productsData.data) {
+        if (category) {
           console.log(
-            `Products loaded via ApiService: ${productsData.data.length}`
+            `Updating category name in loadProductsWithCategory: ${category.name}`
           );
-          setProducts(productsData.data);
-          setTotalPages(productsData.last_page || 1);
-
-          if (productsData.data.length > 0 && productsData.data[0].seller) {
-            setStores([
-              {
-                id: productsData.data[0].seller.id.toString(),
-                name: productsData.data[0].seller.name,
-                category: "Seller",
-              },
-            ]);
-          }
-          return;
-        } else {
-          console.warn("ApiService returned empty products data");
+          setCategoryName(category.name);
         }
-      } catch (apiError) {
-        console.error("Error using ApiService for products:", apiError);
+      } else {
+        setCategoryName("");
       }
 
-      // Fallback: Используем прямой fetch если ApiService не сработал
-      console.log("Falling back to direct fetch for products");
-
-      // Get token for authorization
+      // Get token from AsyncStorage
       let token = await AsyncStorage.getItem("token");
       if (!token) {
         token = await AsyncStorage.getItem("userToken");
       }
 
-      if (!token) {
-        console.log("No auth token found for products request");
-      } else {
-        console.log(
-          "Using auth token for products:",
-          token.substring(0, 10) + "..."
-        );
+      // Добавляем timestamp для предотвращения кэширования
+      const timestamp = Date.now();
+
+      // Build the API URL with category filter if selected
+      let apiUrl = `http://192.168.0.113:8000/api/products?store_id=${storeId}&page=${currentPage}&_t=${timestamp}`;
+      if (categoryValue) {
+        apiUrl += `&category_id=${categoryValue}`;
       }
 
-      // Build URL with pagination and category filter
-      let url = `http://192.168.0.117:8000/api/products?page=${currentPage}`;
+      console.log(
+        `Loading products with URL: ${apiUrl}, Category: ${categoryValue}`
+      );
 
-      // Add category filter if selected
-      if (selectedCategory) {
-        url += `&category_id=${selectedCategory}`;
-      }
-
-      // Add timestamp to prevent caching
-      if (force) {
-        url += `&_t=${Date.now()}`;
-      }
-
-      console.log("Loading products from URL:", url);
-
-      const response = await fetch(url, {
+      const response = await fetch(apiUrl, {
         headers: token
           ? {
               Accept: "application/json",
               Authorization: `Bearer ${token}`,
+              "Cache-Control": "no-cache, no-store, must-revalidate",
             }
           : {
               Accept: "application/json",
+              "Cache-Control": "no-cache, no-store, must-revalidate",
             },
       });
 
-      console.log("Products response status:", response.status);
-
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error(
-          `HTTP error loading products! status: ${response.status}, response:`,
-          errorText
-        );
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const responseData = await response.json();
+      const data = await response.json();
+      console.log("Fetched products:", data);
 
-      if (responseData && responseData.data) {
-        console.log(
-          `Products loaded successfully: ${responseData.data.length}`
-        );
-        setProducts(responseData.data);
-        setTotalPages(responseData.last_page || 1);
+      // Transform API data to match our component's format
+      if (Array.isArray(data.data)) {
+        let apiProducts = data.data.map((item: any) => ({
+          id: item.id.toString(),
+          category_id: item.category_id.toString(),
+          title: item.title,
+          description: item.description,
+          price: item.price,
+          images: item.images,
+          status: item.status,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          seller: item.seller,
+          category: item.category,
+        }));
 
-        if (responseData.data.length > 0 && responseData.data[0].seller) {
-          setStores([
-            {
-              id: responseData.data[0].seller.id.toString(),
-              name: responseData.data[0].seller.name,
-              category: "Seller",
-            },
-          ]);
+        // Фильтрация продуктов по категории на клиенте только если API не поддерживает фильтрацию
+        if (categoryValue) {
+          const filteredCount = apiProducts.filter(
+            (product: Product) => product.category_id === categoryValue
+          ).length;
+
+          console.log(
+            `Products matching category ${categoryValue}: ${filteredCount} out of ${apiProducts.length}`
+          );
+
+          // Если API не отфильтровал корректно, делаем это на клиенте
+          if (filteredCount !== apiProducts.length) {
+            apiProducts = apiProducts.filter(
+              (product: Product) => product.category_id === categoryValue
+            );
+            console.log(`Filtered products client-side: ${apiProducts.length}`);
+          }
         }
+
+        setProducts(apiProducts);
+        setTotalPages(data.last_page || 1);
       }
     } catch (error) {
-      console.error("Error loading products:", error);
-      Alert.alert("Ошибка", "Не удалось загрузить товары");
-      setError("Не удалось загрузить товары с сервера");
+      console.error("Failed to load products:", error);
+      setError("Failed to load products. Please try again.");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Обновляем существующую функцию loadProducts для использования loadProductsWithCategory
+  const loadProducts = async (force = false) => {
+    await loadProductsWithCategory(selectedCategory);
+  };
+
+  // Add category filter UI
+  const renderCategoryFilter = () => {
+    if (isLoadingCategories) {
+      return (
+        <View style={styles.categoryFilterContainer}>
+          <ActivityIndicator size="small" color="#4A5D23" />
+          <Text style={styles.loadingText}>Загрузка категорий...</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.categoryFilterContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterScrollView}
+        >
+          <TouchableOpacity
+            style={[
+              styles.categoryFilterItem,
+              selectedCategory === null && styles.categoryFilterItemActive,
+            ]}
+            onPress={() => handleCategoryChange("")}
+          >
+            <Text
+              style={[
+                styles.categoryFilterText,
+                selectedCategory === null && styles.categoryFilterTextActive,
+              ]}
+            >
+              Все категории
+            </Text>
+          </TouchableOpacity>
+          {categories.map((category) => (
+            <TouchableOpacity
+              key={category.id}
+              style={[
+                styles.categoryFilterItem,
+                selectedCategory === category.id.toString() &&
+                  styles.categoryFilterItemActive,
+              ]}
+              onPress={() => handleCategoryChange(category.id.toString())}
+            >
+              <Text
+                style={[
+                  styles.categoryFilterText,
+                  selectedCategory === category.id.toString() &&
+                    styles.categoryFilterTextActive,
+                ]}
+              >
+                {category.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // Функция для получения текущего имени категории
+  const getCurrentCategoryName = () => {
+    if (!selectedCategory) return "Все категории";
+
+    // Находим категорию в списке по ID
+    const category = categories.find(
+      (cat) => cat.id.toString() === selectedCategory
+    );
+
+    // Возвращаем имя, если нашли, или текущее значение categoryName
+    return category ? category.name : categoryName || "Загрузка...";
   };
 
   // Add a function to force refresh data
@@ -614,7 +849,7 @@ export default function ProductsPage() {
 
       // Make API call to add product to cart using the correct endpoint
       const response = await fetch(
-        `http://192.168.0.117:8000/api/cart/${product.id}`,
+        `http://192.168.0.113:8000/api/cart/${product.id}`,
         {
           method: "POST",
           headers: {
@@ -717,7 +952,7 @@ export default function ProductsPage() {
 
       // Отправляем запрос
       try {
-        const response = await fetch("http://192.168.0.117:8000/api/products", {
+        const response = await fetch("http://192.168.0.113:8000/api/products", {
           method: "POST",
           headers: {
             "Content-Type": "multipart/form-data",
@@ -855,7 +1090,7 @@ export default function ProductsPage() {
       // Обновляем продукт через API
       try {
         const response = await fetch(
-          `http://192.168.0.117:8000/api/products/${selectedProduct.id}`,
+          `http://192.168.0.113:8000/api/products/${selectedProduct.id}`,
           {
             method: "PUT",
             headers: {
@@ -1036,34 +1271,40 @@ export default function ProductsPage() {
         </TouchableOpacity>
       </View>
 
+      {/* Отображение текущей категории */}
+      <View style={styles.currentCategoryContainer}>
+        <Text style={styles.currentCategoryText} key={selectedCategory}>
+          Текущая категория:{" "}
+          <Text
+            style={[
+              styles.categoryNameText,
+              { fontWeight: "bold", color: "#4A5D23" },
+            ]}
+          >
+            {getCurrentCategoryName()}
+          </Text>
+        </Text>
+      </View>
+
       <View style={styles.contentContainer}>
-        {selectedCategory && categories.length > 0 && (
-          <View style={styles.categoryBadgeContainer}>
-            <Text style={styles.categoryBadgeLabel}>Категория:</Text>
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryBadgeText}>
-                {categories.find((c) => c.id.toString() === selectedCategory)
-                  ?.name || `ID: ${selectedCategory}`}
-              </Text>
-            </View>
-          </View>
-        )}
+        {/* Добавляем фильтр категорий здесь, перед заголовком продуктов */}
+        <View style={styles.categorySection}>
+          <Text style={styles.sectionTitle}>Категории:</Text>
+          {renderCategoryFilter()}
+        </View>
 
         <View style={styles.productsHeader}>
           <Text style={styles.productsTitle}>Список продуктов</Text>
           <TouchableOpacity
             style={styles.addButton}
             onPress={() => {
-              setSelectedProduct(null);
-              setFormData({
-                name: "",
-                description: "",
-                price: "",
-                categoryId: selectedCategory || "1",
-                status: "active",
+              router.push({
+                pathname: "/delivery/products/ProductCreation",
+                params: {
+                  storeId: storeId,
+                  categoryId: selectedCategory,
+                },
               });
-              setProductImage(null);
-              setModalVisible(true);
             }}
           >
             <Feather name="plus" size={24} color="white" />
@@ -1212,33 +1453,61 @@ export default function ProductsPage() {
 
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Категория</Text>
+                {selectedProduct && (
+                  <Text style={styles.categoryHint}>
+                    Категория не может быть изменена после создания продукта
+                  </Text>
+                )}
                 <View style={styles.categorySelector}>
-                  {categories.map((category) => (
-                    <TouchableOpacity
-                      key={category.id}
+                  {selectedProduct ? (
+                    // Если редактируем продукт, показываем только его категорию
+                    <View
                       style={[
                         styles.categoryOption,
-                        formData.categoryId === category.id.toString() &&
-                          styles.selectedCategoryOption,
+                        styles.selectedCategoryOption,
                       ]}
-                      onPress={() =>
-                        setFormData({
-                          ...formData,
-                          categoryId: category.id.toString(),
-                        })
-                      }
                     >
                       <Text
                         style={[
                           styles.categoryOptionText,
-                          formData.categoryId === category.id.toString() &&
-                            styles.selectedCategoryOptionText,
+                          styles.selectedCategoryOptionText,
                         ]}
                       >
-                        {category.name}
+                        {categories.find(
+                          (cat: Category) =>
+                            cat.id.toString() === formData.categoryId
+                        )?.name || "Категория"}
                       </Text>
-                    </TouchableOpacity>
-                  ))}
+                    </View>
+                  ) : (
+                    // Если создаем новый продукт, показываем все категории
+                    categories.map((category) => (
+                      <TouchableOpacity
+                        key={category.id}
+                        style={[
+                          styles.categoryOption,
+                          formData.categoryId === category.id.toString() &&
+                            styles.selectedCategoryOption,
+                        ]}
+                        onPress={() =>
+                          setFormData({
+                            ...formData,
+                            categoryId: category.id.toString(),
+                          })
+                        }
+                      >
+                        <Text
+                          style={[
+                            styles.categoryOptionText,
+                            formData.categoryId === category.id.toString() &&
+                              styles.selectedCategoryOptionText,
+                          ]}
+                        >
+                          {category.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))
+                  )}
                 </View>
               </View>
 
@@ -1811,7 +2080,7 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     padding: 8,
     borderRadius: 20,
-    backgroundColor: "#F5F5F5",
+    backgroundColor: "#F5F5F0",
   },
   saveButton: {
     backgroundColor: "#4A5D23",
@@ -1826,24 +2095,87 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  categoryBadgeContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  categoryBadgeLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginRight: 8,
-  },
-  categoryBadge: {
-    padding: 8,
-    backgroundColor: "#4A5D23",
+  categoryFilterContainer: {
+    paddingVertical: 10,
+    marginBottom: 10,
     borderRadius: 8,
   },
-  categoryBadgeText: {
+  categoryFilterItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginRight: 8,
+    borderRadius: 8,
+    backgroundColor: "#f0f0f0",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    minWidth: 100,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  categoryFilterItemActive: {
+    backgroundColor: "#4A5D23",
+    borderColor: "#3A4D13",
+  },
+  categoryFilterText: {
     fontSize: 14,
+    fontWeight: "500",
+    color: "#333",
+    textAlign: "center",
+  },
+  categoryFilterTextActive: {
+    color: "#fff",
     fontWeight: "600",
-    color: "white",
+  },
+  currentCategoryContainer: {
+    padding: 10,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  currentCategoryText: {
+    fontSize: 14,
+    color: "#4A5D23",
+  },
+  categoryHint: {
+    fontSize: 12,
+    color: "#888",
+    marginBottom: 8,
+  },
+  debugText: {
+    fontSize: 10,
+    color: "#888",
+    marginTop: 2,
+  },
+  filterTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 8,
+    color: "#444",
+  },
+  filterScrollView: {
+    paddingHorizontal: 8,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 8,
+  },
+  categorySection: {
+    padding: 10,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  categoryNameText: {
+    fontWeight: "600",
   },
 });

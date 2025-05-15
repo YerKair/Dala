@@ -282,7 +282,7 @@ export default function CheckoutPage() {
 
       console.log("Fetching cart items...");
 
-      const response = await fetch("http://192.168.0.117:8000/api/cart", {
+      const response = await fetch("http://192.168.0.113:8000/api/cart", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -509,7 +509,7 @@ export default function CheckoutPage() {
 
       console.log("Clearing cart...");
 
-      const response = await fetch("http://192.168.0.117:8000/api/cart", {
+      const response = await fetch("http://192.168.0.113:8000/api/cart", {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

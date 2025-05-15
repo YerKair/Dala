@@ -54,7 +54,7 @@ export const ImagePickerComponent: React.FC<ImagePickerComponentProps> = ({
 
     try {
       const response = await fetch(
-        "http://192.168.0.117:8000/api/profile/upload-avatar",
+        "http://192.168.0.113:8000/api/profile/upload-avatar",
         {
           method: "POST",
           headers: {

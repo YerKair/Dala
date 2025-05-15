@@ -159,7 +159,7 @@ export default function PaymentMethodsScreen() {
       console.log("Using token for fetch:", token);
 
       const response = await fetch(
-        "http://192.168.0.117:8000/api/credit-cards",
+        "http://192.168.0.113:8000/api/credit-cards",
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -252,7 +252,7 @@ export default function PaymentMethodsScreen() {
 
             // Отправляем DELETE-запрос к API
             const response = await fetch(
-              `http://192.168.0.117:8000/api/credit-cards/${cardId}`,
+              `http://192.168.0.113:8000/api/credit-cards/${cardId}`,
               {
                 method: "DELETE",
                 headers: {
@@ -308,7 +308,7 @@ export default function PaymentMethodsScreen() {
       }
 
       const response = await fetch(
-        `http://192.168.0.117
+        `http://192.168.0.113
         /api/credit-cards/${id}/set-default`,
         {
           method: "POST",
