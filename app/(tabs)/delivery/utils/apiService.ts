@@ -3,7 +3,7 @@ import axios from "axios";
 import { useAuth } from "../../../auth/AuthContext";
 
 // API Base URL - измените на ваш реальный URL бэкенда
-const API_BASE_URL = "http://192.168.0.117:8000/api";
+const API_BASE_URL = "http://192.168.0.104:8000/api";
 
 // Создаем экземпляр axios с базовыми настройками
 const api = axios.create({
@@ -74,6 +74,32 @@ export class ApiService {
       return response.data;
     } catch (error) {
       console.error(`Failed to load product ${id}:`, error);
+      throw error;
+    }
+  }
+
+  // Получение информации о магазине по ID
+  async getStore(id: string) {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/restaurants/${id}`, {
+        headers: this.getHeaders(),
+      });
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to load store ${id}:`, error);
+      throw error;
+    }
+  }
+
+  // Получение списка ресторанов/магазинов
+  async getRestaurants() {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/restaurants`, {
+        headers: this.getHeaders(),
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to load restaurants:", error);
       throw error;
     }
   }
@@ -211,13 +237,46 @@ export class ApiService {
   // Получение списка категорий
   async getCategories() {
     try {
+      console.log("[API] Sending request to get categories");
+      console.log("[API] URL:", `${API_BASE_URL}/categories`);
+      console.log("[API] Headers:", this.getHeaders());
+
+      // Проверяем токен перед запросом
+      if (!this.token) {
+        console.warn(
+          "[API] Warning: No auth token available for categories request"
+        );
+      } else {
+        console.log("[API] Using auth token for categories request");
+      }
+
       const response = await axios.get(`${API_BASE_URL}/categories`, {
         headers: this.getHeaders(),
       });
+
+      console.log("[API] Categories response status:", response.status);
+      console.log("[API] Categories data count:", response.data.length);
+
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load categories:", error);
-      throw error;
+
+      // Подробная информация об ошибке
+      if (error.response) {
+        // Ответ сервера получен, но с ошибкой
+        console.error("[API] Server error:", error.response.status);
+        console.error("[API] Error data:", error.response.data);
+        console.error("[API] Response headers:", error.response.headers);
+      } else if (error.request) {
+        // Запрос был сделан, но ответ не получен
+        console.error("[API] No response from server:", error.request);
+      } else {
+        // Что-то произошло во время настройки запроса
+        console.error("[API] Request error:", error.message);
+      }
+
+      // Возвращаем пустой массив вместо ошибки
+      return [];
     }
   }
 

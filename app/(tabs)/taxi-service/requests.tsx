@@ -11,12 +11,14 @@ import {
   ActivityIndicator,
   Platform,
   StatusBar,
+  RefreshControl,
 } from "react-native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../auth/AuthContext";
 import { tripManager } from "../../store/globalState";
+import { useTranslation } from "react-i18next";
 
 // Define ride request interface
 interface RideRequest {
@@ -73,6 +75,8 @@ const RequestItem: React.FC<RequestItemProps> = ({
   onAccept,
   onDecline,
 }) => {
+  const { t } = useTranslation();
+
   // Format time ago
   const formatTimeAgo = (timestamp: number): string => {
     const seconds = Math.floor((new Date().getTime() - timestamp) / 1000);
@@ -121,13 +125,17 @@ const RequestItem: React.FC<RequestItemProps> = ({
           style={[styles.actionButton, styles.declineButton]}
           onPress={() => onDecline(request.id)}
         >
-          <Text style={styles.declineButtonText}>Decline</Text>
+          <Text style={styles.declineButtonText}>
+            {t("taxi.requests.decline")}
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionButton, styles.acceptButton]}
           onPress={() => onAccept(request.id)}
         >
-          <Text style={styles.acceptButtonText}>Accept</Text>
+          <Text style={styles.acceptButtonText}>
+            {t("taxi.requests.accept")}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -137,6 +145,7 @@ const RequestItem: React.FC<RequestItemProps> = ({
 export default function TaxiRequestsScreen() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [requests, setRequests] = useState<RideRequest[]>([]);
@@ -171,15 +180,15 @@ export default function TaxiRequestsScreen() {
 
     if (request) {
       Alert.alert(
-        "Accept Ride Request",
-        `Are you sure you want to accept the ride request from ${request.client}?`,
+        t("taxi.requests.acceptRideTitle"),
+        t("taxi.requests.acceptRideMessage"),
         [
           {
-            text: "Cancel",
+            text: t("taxi.requests.cancel"),
             style: "cancel",
           },
           {
-            text: "Accept",
+            text: t("taxi.requests.confirm"),
             onPress: () => {
               // Start trip via global trip manager
               tripManager.startTrip({
@@ -206,15 +215,15 @@ export default function TaxiRequestsScreen() {
   // Handle decline request
   const handleDeclineRequest = (requestId: string) => {
     Alert.alert(
-      "Decline Request",
-      "Are you sure you want to decline this ride request?",
+      t("taxi.requests.declineTitle"),
+      t("taxi.requests.declineMessage"),
       [
         {
-          text: "Cancel",
+          text: t("taxi.requests.cancel"),
           style: "cancel",
         },
         {
-          text: "Decline",
+          text: t("taxi.requests.decline"),
           onPress: () => {
             // Remove the request from the list
             setRequests(requests.filter((req) => req.id !== requestId));
@@ -233,15 +242,15 @@ export default function TaxiRequestsScreen() {
     } else {
       // Going offline
       Alert.alert(
-        "Go Offline",
-        "Are you sure you want to stop receiving ride requests?",
+        t("taxi.requests.goOfflineTitle"),
+        t("taxi.requests.goOfflineMessage"),
         [
           {
-            text: "Cancel",
+            text: t("taxi.requests.cancel"),
             style: "cancel",
           },
           {
-            text: "Go Offline",
+            text: t("taxi.requests.goOffline"),
             onPress: () => {
               setActiveMode(false);
               setRequests([]); // Clear requests when going offline
@@ -257,6 +266,37 @@ export default function TaxiRequestsScreen() {
     router.push("/profile-information-views/WorkInDamuScreen");
   };
 
+  // Render empty state
+  const renderEmptyState = () => {
+    if (loading) {
+      return (
+        <View style={styles.emptyContainer}>
+          <ActivityIndicator size="large" color="#4C6A2E" />
+          <Text style={styles.emptyText}>{t("taxi.requests.loading")}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.emptyContainer}>
+        <Image
+          source={require("../../../assets/images/no-request.jpeg")}
+          style={styles.emptyImage}
+          defaultSource={require("../../../assets/images/no-request.jpeg")}
+        />
+        <Text style={styles.emptyTitle}>{t("taxi.requests.noRequests")}</Text>
+        <Text style={styles.emptySubtitle}>
+          {t("taxi.requests.noRequestsSubtitle")}
+        </Text>
+        <TouchableOpacity style={styles.refreshButton} onPress={loadRequests}>
+          <Text style={styles.refreshButtonText}>
+            {t("taxi.requests.refresh")}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView
       style={[
@@ -269,7 +309,7 @@ export default function TaxiRequestsScreen() {
         <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Ride Requests</Text>
+        <Text style={styles.headerTitle}>{t("taxi.requests.title")}</Text>
         <TouchableOpacity
           style={[
             styles.activeToggle,
@@ -291,40 +331,30 @@ export default function TaxiRequestsScreen() {
             style={styles.offlineImage}
             defaultSource={require("../../../assets/images/driver-offline.jpg")}
           />
-          <Text style={styles.offlineTitle}>You're Offline</Text>
+          <Text style={styles.offlineTitle}>
+            {t("taxi.requests.offlineTitle")}
+          </Text>
           <Text style={styles.offlineSubtitle}>
-            Go online to start receiving ride requests
+            {t("taxi.requests.offlineSubtitle")}
           </Text>
           <TouchableOpacity
             style={styles.goOnlineButton}
             onPress={toggleActiveMode}
           >
-            <Text style={styles.goOnlineButtonText}>Go Online</Text>
+            <Text style={styles.goOnlineButtonText}>
+              {t("taxi.requests.goOnline")}
+            </Text>
           </TouchableOpacity>
         </View>
       ) : loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#4CAF50" />
-          <Text style={styles.loadingText}>Loading requests...</Text>
+          <Text style={styles.loadingText}>
+            {t("taxi.requests.loadingRequests")}
+          </Text>
         </View>
       ) : requests.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Image
-            source={require("../../../assets/images/no-request.jpeg")}
-            style={styles.emptyImage}
-            defaultSource={require("../../../assets/images/no-request.jpeg")}
-          />
-          <Text style={styles.emptyTitle}>No Requests Yet</Text>
-          <Text style={styles.emptySubtitle}>
-            New ride requests will appear here
-          </Text>
-          <TouchableOpacity
-            style={styles.refreshButton}
-            onPress={handleRefresh}
-          >
-            <Text style={styles.refreshButtonText}>Refresh</Text>
-          </TouchableOpacity>
-        </View>
+        renderEmptyState()
       ) : (
         <FlatList
           data={requests}
@@ -339,6 +369,10 @@ export default function TaxiRequestsScreen() {
           contentContainerStyle={styles.listContainer}
           refreshing={refreshing}
           onRefresh={handleRefresh}
+          ListEmptyComponent={renderEmptyState}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
         />
       )}
     </SafeAreaView>
@@ -574,5 +608,11 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "600",
     fontSize: 16,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+    marginTop: 16,
   },
 });

@@ -66,7 +66,7 @@ export default function EditProfileScreen(): JSX.Element {
 
     try {
       const response = await fetch(
-        "http://192.168.0.117:8000/api/profile/update",
+        "http://192.168.0.104:8000/api/profile/update",
         {
           method: "POST",
           headers: {

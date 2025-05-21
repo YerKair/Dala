@@ -69,20 +69,14 @@ const CategoryItem = ({
   <TouchableOpacity
     style={[styles.categoryItem, selected && styles.categoryItemSelected]}
     onPress={onSelect}
+    activeOpacity={0.7}
   >
-    <View
-      style={[
-        styles.categoryIconContainer,
-        selected && {
-          backgroundColor: "#C3E0A8",
-          borderWidth: 2,
-          borderColor: "#4A5D23",
-        },
-      ]}
+    <View style={styles.categoryIconContainer}>{item.icon}</View>
+    <Text
+      style={[styles.categoryText, selected && styles.categoryTextSelected]}
     >
-      {item.icon}
-    </View>
-    <Text style={styles.categoryLabel}>{item.name}</Text>
+      {item.name}
+    </Text>
   </TouchableOpacity>
 );
 
@@ -122,7 +116,7 @@ const StoreCard = ({
           // Check if it's a full URL or a relative path
           const imageUrl = store.image_path.startsWith("http")
             ? store.image_path
-            : `http://192.168.0.117:8000${store.image_path}`;
+            : `http://192.168.0.104:8000${store.image_path}`;
 
           setStoreImage(imageUrl);
 
@@ -220,9 +214,11 @@ export default function DeliveryPage() {
   const [recommendedStores, setRecommendedStores] = useState<Store[]>([]);
   const [filteredStores, setFilteredStores] = useState<Store[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFilteringLoading, setIsFilteringLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [categoryKey, setCategoryKey] = useState<number>(0); // Ключ для перерендера категорий
 
   // Define categories
   const categories: Category[] = [
@@ -267,7 +263,7 @@ export default function DeliveryPage() {
         }
 
         const response = await fetch(
-          "http://192.168.0.117:8000/api/restaurants",
+          "http://192.168.0.104:8000/api/restaurants",
           {
             headers: token
               ? {
@@ -343,8 +339,10 @@ export default function DeliveryPage() {
     fetchStores();
   }, [t]);
 
-  // Filter stores based on search query and selected category
+  // Filter stores based on search query and category
   useEffect(() => {
+    console.log(`Filtering by category: ${selectedCategory}`);
+
     let filtered = [...stores];
 
     // Apply category filter if not "all"
@@ -354,6 +352,7 @@ export default function DeliveryPage() {
           store.category &&
           store.category.toLowerCase() === selectedCategory.toLowerCase()
       );
+      console.log(`Filtered by category: ${filtered.length} stores remaining`);
     }
 
     // Apply search filter if query exists
@@ -367,33 +366,36 @@ export default function DeliveryPage() {
           (store.address &&
             store.address.toLowerCase().includes(lowercasedQuery))
       );
+      console.log(`Filtered by search: ${filtered.length} stores remaining`);
     }
 
     setFilteredStores(filtered);
 
     // Also update popular and recommended lists with the same filters
-    setPopularStores(
-      stores
-        .filter((store) => store.isPopular)
-        .filter(
-          (store) =>
-            selectedCategory === "all" ||
-            (store.category &&
-              store.category.toLowerCase() === selectedCategory.toLowerCase())
-        )
-    );
+    const newPopularStores = stores
+      .filter((store) => store.isPopular)
+      .filter(
+        (store) =>
+          selectedCategory === "all" ||
+          (store.category &&
+            store.category.toLowerCase() === selectedCategory.toLowerCase())
+      );
 
-    setRecommendedStores(
-      stores
-        .filter((store) => store.isRecommended)
-        .filter(
-          (store) =>
-            selectedCategory === "all" ||
-            (store.category &&
-              store.category.toLowerCase() === selectedCategory.toLowerCase())
-        )
-    );
-  }, [searchQuery, selectedCategory, stores]);
+    const newRecommendedStores = stores
+      .filter((store) => store.isRecommended)
+      .filter(
+        (store) =>
+          selectedCategory === "all" ||
+          (store.category &&
+            store.category.toLowerCase() === selectedCategory.toLowerCase())
+      );
+
+    setPopularStores(newPopularStores);
+    setRecommendedStores(newRecommendedStores);
+
+    console.log(`Updated popular stores: ${newPopularStores.length}`);
+    console.log(`Updated recommended stores: ${newRecommendedStores.length}`);
+  }, [searchQuery, stores, selectedCategory]);
 
   // Навигация к деталям магазина
   const navigateToStoreDetail = (storeId: number) => {
@@ -438,7 +440,21 @@ export default function DeliveryPage() {
 
   // Handle category selection
   const handleCategorySelect = (categoryId: string) => {
+    console.log(`Changing category from ${selectedCategory} to ${categoryId}`);
+
+    // Показываем индикатор загрузки
+    setIsFilteringLoading(true);
+
+    // Обновляем выбранную категорию
     setSelectedCategory(categoryId);
+
+    // Принудительно обновляем состояние для перерисовки компонентов
+    setCategoryKey((prevKey) => prevKey + 1);
+
+    // Скрываем индикатор загрузки после небольшой задержки для лучшего UX
+    setTimeout(() => {
+      setIsFilteringLoading(false);
+    }, 300);
   };
 
   // Loading state
@@ -490,6 +506,7 @@ export default function DeliveryPage() {
         <View style={styles.categoriesSection}>
           <Text style={styles.categoryTitle}>{t("category")}</Text>
           <ScrollView
+            key={`categories-${categoryKey}`}
             horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.categoriesContainer}
@@ -497,7 +514,7 @@ export default function DeliveryPage() {
           >
             {categories.map((category) => (
               <CategoryItem
-                key={category.id}
+                key={`${category.id}-${categoryKey}`}
                 item={category}
                 selected={selectedCategory === category.id}
                 onSelect={() => handleCategorySelect(category.id)}
@@ -576,6 +593,14 @@ export default function DeliveryPage() {
             <Feather name="plus" size={20} color="#fff" />
             <Text style={styles.addStoreText}>{t("addStore")}</Text>
           </TouchableOpacity>
+
+          {/* Loading indicator for filtering */}
+          {isFilteringLoading && (
+            <View style={styles.filteringLoadingContainer}>
+              <ActivityIndicator size="small" color="#4A5D23" />
+              <Text style={styles.filteringLoadingText}>{t("filtering")}</Text>
+            </View>
+          )}
 
           {/* Grid of stores */}
           {filteredStores.length > 0 ? (
@@ -670,33 +695,41 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   categoriesContainer: {
-    flexDirection: "row",
-    marginBottom: 24,
+    marginBottom: 16,
   },
   categoriesContent: {
     paddingRight: 16,
-  },
-  categoryItem: {
-    alignItems: "center",
-    marginRight: 16,
-    width: 80,
-  },
-  categoryItemSelected: {
-    opacity: 1,
+    paddingBottom: 8,
   },
   categoryIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-    backgroundColor: "#E8F1E0",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#EFEFEF",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 8,
   },
-  categoryLabel: {
-    fontSize: 12,
-    textAlign: "center",
-    color: "#333",
+  categoryItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginRight: 8,
+    borderRadius: 20,
+    backgroundColor: "#f5f5f5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  categoryItemSelected: {
+    backgroundColor: "#FF6C44",
+  },
+  categoryText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#757575",
+  },
+  categoryTextSelected: {
+    color: "#ffffff",
+    fontWeight: "600",
   },
   section: {
     marginBottom: 24,
@@ -880,5 +913,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#666",
     marginTop: 12,
+  },
+  filteringLoadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 12,
+    backgroundColor: "#FFEEEE",
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  filteringLoadingText: {
+    color: "#4A5D23",
+    fontSize: 14,
+    fontWeight: "500",
+    marginLeft: 8,
   },
 });

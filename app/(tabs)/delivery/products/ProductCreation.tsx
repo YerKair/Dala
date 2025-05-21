@@ -20,10 +20,12 @@ import { Ionicons, Feather } from "@expo/vector-icons";
 import { useApi } from "../utils/apiService";
 import { useAuth } from "../../../auth/AuthContext";
 import SimpleImagePicker from "../utils/components/SimpleImagePicker";
-import { saveImage } from "../utils/simpleImageStorage";
-import ImageGallery from "../utils/components/ImageGallery";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getProductImage, getProductGallery } from "../utils/imageHelper";
+import {
+  getProductImage,
+  getProductGallery,
+  saveProductImage,
+} from "../utils/helpers";
 
 // Определим интерфейс для категории
 interface Category {
@@ -41,13 +43,16 @@ export default function ProductCreation() {
     : params.seller_id
     ? String(params.seller_id)
     : undefined;
+  const initialCategoryId = params.categoryId
+    ? String(params.categoryId)
+    : undefined;
   const api = useApi();
   const { isAuthenticated } = useAuth();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
-  const [categoryId, setCategoryId] = useState("1");
+  const [categoryId, setCategoryId] = useState(initialCategoryId || "1");
   const [status, setStatus] = useState("active");
   const [productImage, setProductImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -84,7 +89,7 @@ export default function ProductCreation() {
 
     try {
       const response = await fetch(
-        `http://192.168.0.117:8000/api/users/${seller_id}`
+        `http://192.168.0.104:8000/api/users/${seller_id}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -106,7 +111,7 @@ export default function ProductCreation() {
       }
 
       // Запрашиваем категории из API
-      const response = await fetch("http://192.168.0.117:8000/api/categories", {
+      const response = await fetch("http://192.168.0.104:8000/api/categories", {
         headers: token
           ? {
               Accept: "application/json",
@@ -177,11 +182,22 @@ export default function ProductCreation() {
         } as any);
       }
 
-      const response = await fetch("http://192.168.0.117:8000/api/products", {
+      // Получаем токен для авторизации
+      let token = await AsyncStorage.getItem("token");
+      if (!token) {
+        token = await AsyncStorage.getItem("userToken");
+      }
+
+      const response = await fetch("http://192.168.0.104:8000/api/products", {
         method: "POST",
-        headers: {
-          Accept: "application/json",
-        },
+        headers: token
+          ? {
+              Accept: "application/json",
+              Authorization: `Bearer ${token}`,
+            }
+          : {
+              Accept: "application/json",
+            },
         body: formData,
       });
 
@@ -194,20 +210,21 @@ export default function ProductCreation() {
 
       // Save image to local storage if exists
       if (productImage) {
-        await saveImage(productImage, data.id);
+        await saveProductImage(productImage, data.id);
       }
 
       Alert.alert("Успех", "Продукт успешно создан", [
         {
           text: "OK",
           onPress: () => {
-            // Navigate back with force refresh
+            // Navigate back with force refresh and category filter
             router.push({
               pathname: "/delivery/products/ProductsPage",
               params: {
                 storeId: seller_id,
                 refresh: Date.now(),
                 forceRefresh: "true",
+                categoryId: categoryId,
               },
             });
           },
@@ -381,11 +398,6 @@ export default function ProductCreation() {
                 Проверить работу с изображением
               </Text>
             </TouchableOpacity>
-          </View>
-
-          <Text style={styles.inputLabel}>Галерея изображений</Text>
-          <View style={styles.gallerySection}>
-            <ImageGallery productId={productId} maxImages={5} />
           </View>
 
           <Text style={styles.inputLabel}>Статус</Text>

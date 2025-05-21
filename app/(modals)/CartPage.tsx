@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getProductImage } from "../(tabs)/delivery/utils/imageHelper";
+import { getProductImage } from "../(tabs)/delivery/utils/helpers";
 import { useTranslation } from "react-i18next";
 
 // CartItem interface

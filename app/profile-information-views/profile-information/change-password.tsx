@@ -114,7 +114,7 @@ export default function ChangePasswordScreen() {
       console.log("Отправляемые данные:", requestData);
 
       const response = await fetch(
-        "http://192.168.0.117:8000/api/change-password",
+        "http://192.168.0.104:8000/api/change-password",
         {
           method: "POST",
           headers: {

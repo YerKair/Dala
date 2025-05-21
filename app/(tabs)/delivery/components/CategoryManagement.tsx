@@ -15,6 +15,7 @@ import { Feather, MaterialIcons, Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, router } from "expo-router";
+import { getStoreImage, saveStoreImage } from "../utils/helpers";
 
 interface Category {
   id: number;
@@ -29,7 +30,7 @@ interface CategoryManagementProps {
   storeId?: string;
 }
 
-const API_BASE_URL = "http://192.168.0.117:8000/api";
+const API_BASE_URL = "http://192.168.0.104:8000/api";
 
 // Ключи для AsyncStorage с учетом storeId
 const getCategoriesKey = (storeId: string) => `stored_categories_${storeId}`;
@@ -53,9 +54,15 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Store image states
+  const [storeImage, setStoreImage] = useState<string | null>(null);
+  const [storeImageLoading, setStoreImageLoading] = useState(false);
+  const [storeImageModalVisible, setStoreImageModalVisible] = useState(false);
+
   useEffect(() => {
     if (storeId) {
       loadCategories();
+      loadStoreImage();
     } else {
       setError("Не указан ID ресторана");
     }
@@ -113,6 +120,53 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
     }
   };
 
+  const loadStoreImage = async () => {
+    if (!storeId) return;
+
+    try {
+      setStoreImageLoading(true);
+      const imageUri = await getStoreImage(storeId);
+      setStoreImage(imageUri);
+    } catch (error) {
+      console.error("Error loading store image:", error);
+    } finally {
+      setStoreImageLoading(false);
+    }
+  };
+
+  const pickStoreImage = async () => {
+    try {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Необходимо разрешение",
+          "Дайте доступ к галерее изображений"
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.3,
+        exif: false,
+        base64: false,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const selectedImage = result.assets[0].uri;
+        setStoreImage(selectedImage);
+        await saveStoreImage(storeId, selectedImage);
+        Alert.alert("Успех", "Изображение ресторана обновлено");
+      }
+    } catch (error) {
+      console.error("Error picking store image:", error);
+      Alert.alert("Ошибка", "Не удалось выбрать изображение");
+    }
+  };
+
   const createCategory = async () => {
     if (!newCategoryName.trim()) {
       Alert.alert("Ошибка", "Пожалуйста, введите название категории");
@@ -121,6 +175,26 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
 
     setLoading(true);
     try {
+      // Получаем токен авторизации
+      let token = await AsyncStorage.getItem("token");
+      if (!token) {
+        token = await AsyncStorage.getItem("userToken");
+      }
+
+      if (!token) {
+        Alert.alert(
+          "Ошибка",
+          "Вы не авторизованы. Войдите в систему для создания категорий."
+        );
+        setLoading(false);
+        return;
+      }
+
+      console.log(
+        "Creating category with auth token:",
+        token.substring(0, 10) + "..."
+      );
+
       const formData = new FormData();
       formData.append("name", newCategoryName.trim());
       formData.append("store_id", storeId);
@@ -133,15 +207,92 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
         } as any);
       }
 
+      console.log(
+        "Category creation request URL:",
+        `${API_BASE_URL}/categories`
+      );
+      console.log("Category creation request data:", {
+        name: newCategoryName.trim(),
+        store_id: storeId,
+        hasImage: !!categoryImage,
+      });
+
       const response = await fetch(`${API_BASE_URL}/categories`, {
         method: "POST",
         headers: {
           Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data",
         },
         body: formData,
       });
 
+      console.log("Category creation response status:", response.status);
+
+      // Handle 413 Entity Too Large error
+      if (response.status === 413) {
+        Alert.alert(
+          "Ошибка",
+          "Изображение слишком большое. Пожалуйста, выберите изображение меньшего размера или качества.",
+          [
+            { text: "Отмена", style: "cancel" },
+            {
+              text: "Только текст",
+              onPress: async () => {
+                // Try creating just with text without the image
+                try {
+                  const textOnlyFormData = new FormData();
+                  textOnlyFormData.append("name", newCategoryName.trim());
+                  textOnlyFormData.append("store_id", storeId);
+
+                  const textOnlyResponse = await fetch(
+                    `${API_BASE_URL}/categories`,
+                    {
+                      method: "POST",
+                      headers: {
+                        Accept: "application/json",
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "multipart/form-data",
+                      },
+                      body: textOnlyFormData,
+                    }
+                  );
+
+                  if (textOnlyResponse.ok) {
+                    const data = await textOnlyResponse.json();
+                    setModalVisible(false);
+                    setNewCategoryName("");
+                    setCategoryImage(null);
+                    loadCategories();
+                    Alert.alert("Успех", "Категория создана без изображения");
+                  } else {
+                    throw new Error(
+                      `HTTP error! status: ${textOnlyResponse.status}`
+                    );
+                  }
+                } catch (textError) {
+                  console.error(
+                    "Error creating category text only:",
+                    textError
+                  );
+                  Alert.alert("Ошибка", "Не удалось создать категорию");
+                } finally {
+                  setLoading(false);
+                }
+              },
+            },
+          ]
+        );
+        setLoading(false);
+        return;
+      }
+
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `HTTP error creating category! status: ${response.status}, response:`,
+          errorText
+        );
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
@@ -160,15 +311,10 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
       setNewCategoryName("");
       setCategoryImage(null);
 
-      // Navigate back with force refresh
-      router.push({
-        pathname: "/delivery/products/ProductsPage",
-        params: {
-          storeId: storeId,
-          refresh: Date.now(),
-          forceRefresh: "true",
-        },
-      });
+      // Reload categories without redirecting
+      loadCategories();
+
+      Alert.alert("Успех", "Категория успешно создана");
     } catch (error) {
       console.error("Error creating category:", error);
       Alert.alert("Ошибка", "Не удалось создать категорию");
@@ -185,9 +331,48 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
 
     setLoading(true);
     try {
+      // Получаем токен авторизации
+      let token = await AsyncStorage.getItem("token");
+      if (!token) {
+        token = await AsyncStorage.getItem("userToken");
+      }
+
+      if (!token) {
+        Alert.alert(
+          "Ошибка",
+          "Вы не авторизованы. Войдите в систему для обновления категорий."
+        );
+        setLoading(false);
+        return;
+      }
+
+      console.log(
+        "Updating category with auth token:",
+        token.substring(0, 10) + "..."
+      );
+
+      // First, try to update the category data without the image
+      const categoryData = {
+        name: newCategoryName.trim(),
+        store_id: storeId,
+        _method: "PUT",
+      };
+
+      console.log(
+        "Category update request URL:",
+        `${API_BASE_URL}/categories/${editingCategory.id}`
+      );
+      console.log("Category update request data:", {
+        hasImage: !!categoryImage,
+        name: newCategoryName.trim(),
+        store_id: storeId,
+      });
+
+      // Create form data for the request
       const formData = new FormData();
       formData.append("name", newCategoryName.trim());
       formData.append("store_id", storeId);
+      formData.append("_method", "PUT"); // Laravel требует _method=PUT для form-data запросов
 
       if (categoryImage) {
         formData.append("image", {
@@ -200,15 +385,83 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
       const response = await fetch(
         `${API_BASE_URL}/categories/${editingCategory.id}`,
         {
-          method: "PUT",
+          method: "POST", // Используем POST с _method=PUT для multipart/form-data
           headers: {
             Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
           },
           body: formData,
         }
       );
 
+      console.log("Category update response status:", response.status);
+
+      // Handle 413 Entity Too Large error
+      if (response.status === 413) {
+        Alert.alert(
+          "Ошибка",
+          "Изображение слишком большое. Пожалуйста, выберите изображение меньшего размера или качества.",
+          [
+            { text: "Отмена", style: "cancel" },
+            {
+              text: "Только текст",
+              onPress: async () => {
+                // Try updating just the text without the image
+                try {
+                  const textOnlyFormData = new FormData();
+                  textOnlyFormData.append("name", newCategoryName.trim());
+                  textOnlyFormData.append("store_id", storeId);
+                  textOnlyFormData.append("_method", "PUT");
+
+                  const textOnlyResponse = await fetch(
+                    `${API_BASE_URL}/categories/${editingCategory.id}`,
+                    {
+                      method: "POST",
+                      headers: {
+                        Accept: "application/json",
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "multipart/form-data",
+                      },
+                      body: textOnlyFormData,
+                    }
+                  );
+
+                  if (textOnlyResponse.ok) {
+                    setModalVisible(false);
+                    setEditingCategory(null);
+                    setNewCategoryName("");
+                    setCategoryImage(null);
+                    loadCategories();
+                    Alert.alert("Успех", "Категория обновлена без изображения");
+                  } else {
+                    throw new Error(
+                      `HTTP error! status: ${textOnlyResponse.status}`
+                    );
+                  }
+                } catch (textError) {
+                  console.error(
+                    "Error updating category text only:",
+                    textError
+                  );
+                  Alert.alert("Ошибка", "Не удалось обновить категорию");
+                } finally {
+                  setLoading(false);
+                }
+              },
+            },
+          ]
+        );
+        setLoading(false);
+        return;
+      }
+
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `HTTP error updating category! status: ${response.status}, response:`,
+          errorText
+        );
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
@@ -228,15 +481,10 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
       setNewCategoryName("");
       setCategoryImage(null);
 
-      // Navigate back with force refresh
-      router.push({
-        pathname: "/delivery/products/ProductsPage",
-        params: {
-          storeId: storeId,
-          refresh: Date.now(),
-          forceRefresh: "true",
-        },
-      });
+      // Reload categories without redirecting
+      loadCategories();
+
+      Alert.alert("Успех", "Категория успешно обновлена");
     } catch (error) {
       console.error("Error updating category:", error);
       Alert.alert("Ошибка", "Не удалось обновить категорию");
@@ -350,7 +598,9 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.3,
+      exif: false,
+      base64: false,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -429,6 +679,44 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
         </View>
       ) : (
         <>
+          {/* Store Image Management Section */}
+          <View style={styles.storeImageSection}>
+            <Text style={styles.sectionTitle}>Изображение ресторана</Text>
+            <View style={styles.storeImageContainer}>
+              {storeImageLoading ? (
+                <ActivityIndicator size="large" color="#4A5D23" />
+              ) : storeImage ? (
+                <View style={styles.storeImageWrapper}>
+                  <Image
+                    source={{ uri: storeImage }}
+                    style={styles.storeImage}
+                    resizeMode="cover"
+                  />
+                  <TouchableOpacity
+                    style={styles.changeStoreImageButton}
+                    onPress={pickStoreImage}
+                  >
+                    <Text style={styles.changeStoreImageText}>Изменить</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.storeImagePlaceholder}
+                  onPress={pickStoreImage}
+                >
+                  <Feather name="image" size={40} color="#4A5D23" />
+                  <Text style={styles.storeImagePlaceholderText}>
+                    Добавить изображение ресторана
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          {/* Categories Section */}
+          <Text style={styles.sectionTitle}>Категории</Text>
           <View style={styles.actionsContainer}>
             <TouchableOpacity
               style={styles.addButton}
@@ -559,6 +847,79 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     color: "#333",
+  },
+  // Store Image Section
+  storeImageSection: {
+    backgroundColor: "#FFFFFF",
+    padding: 16,
+    marginTop: 16,
+    marginHorizontal: 16,
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 16,
+    color: "#333",
+    paddingHorizontal: 16,
+    marginTop: 16,
+  },
+  storeImageContainer: {
+    width: "100%",
+    height: 200,
+    borderRadius: 8,
+    overflow: "hidden",
+    marginBottom: 10,
+  },
+  storeImageWrapper: {
+    width: "100%",
+    height: "100%",
+    position: "relative",
+  },
+  storeImage: {
+    width: "100%",
+    height: "100%",
+  },
+  changeStoreImageButton: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  changeStoreImageText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+  },
+  storeImagePlaceholder: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F5F5F5",
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+    borderStyle: "dashed",
+    borderRadius: 8,
+  },
+  storeImagePlaceholderText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: "#4A5D23",
+    fontWeight: "500",
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#E0E0E0",
+    marginVertical: 16,
+    marginHorizontal: 16,
   },
   actionsContainer: {
     marginVertical: 16,

@@ -30,6 +30,8 @@ export default {
   phone: "Телефон",
   orderHistory: "История заказов",
   viewOrderHistory: "Посмотрите историю ваших заказов",
+  taxiHistory: "История такси",
+  viewTaxiHistory: "Просмотр истории ваших поездок на такси",
   referFriends: "Пригласить друзей",
   shareApp: "Поделиться приложением с друзьями",
   notifications: "Уведомления",
@@ -379,4 +381,39 @@ export default {
     orderDetails: "Детали заказа",
     orderNumber: "Заказ №{{id}}",
   },
+
+  // Taxi History
+  taxiHistoryScreen: {
+    title: "История поездок",
+    loading: "Загрузка истории поездок...",
+    noTrips: "У вас пока нет истории поездок",
+    noTripsDescription:
+      "У вас пока нет поездок на такси. Закажите такси, чтобы они появились здесь.",
+    orderTaxi: "Заказать такси",
+    completed: "Завершена",
+    pending: "В ожидании",
+    cancelled: "Отменена",
+    details: "Детали поездки",
+  },
+
+  // Profile Section
+  profileSection: {
+    personalInfo: "Личная информация",
+    personalInfoDesc: "Управление вашими личными данными",
+    orderHistory: "История заказов",
+    orderHistoryDesc: "Просмотр истории ваших заказов",
+    taxiHistory: "История поездок",
+    taxiHistoryDesc: "Просмотр истории ваших поездок на такси",
+    referFriends: "Пригласить друзей",
+    referFriendsDesc: "Поделитесь приложением с друзьями",
+    notifications: "Уведомления",
+    notificationsDesc: "Управление вашими уведомлениями",
+    workInDala: "Работа в Дала",
+    workInDalaDesc: "Найти работу",
+  },
+
+  // Order History
+  noOrdersYet: "У вас пока нет заказов",
+  orderHistoryWillAppearHere:
+    "История ваших заказов появится здесь после оформления",
 };

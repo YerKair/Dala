@@ -12,4 +12,5 @@ export interface Order {
   status: "completed" | "cancelled" | "active"; // Order status
   address: string; // Delivery address or pickup location
   paymentMethod: string; // Payment method used
+  userId?: string; // ID пользователя для фильтрации в истории заказов
 }

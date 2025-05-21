@@ -29,6 +29,8 @@ import { Order } from "./types/order";
 
 // Import our services and helpers
 import { useAuth } from "../../../auth/AuthContext";
+import { RestaurantOrderService } from "../../../services/RestaurantOrderService";
+import { OrderHistoryService } from "../../../services/OrderHistoryService";
 
 // Interface for cart item from API
 interface CartItem {
@@ -282,7 +284,7 @@ export default function CheckoutPage() {
 
       console.log("Fetching cart items...");
 
-      const response = await fetch("http://192.168.0.117:8000/api/cart", {
+      const response = await fetch("http://192.168.0.104:8000/api/cart", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -479,20 +481,19 @@ export default function CheckoutPage() {
 
   const addToOrderHistory = async (newOrder: Order) => {
     try {
-      const existingOrdersJson = await AsyncStorage.getItem("orderHistory");
-      let existingOrders: Order[] = [];
-
-      if (existingOrdersJson) {
-        existingOrders = JSON.parse(existingOrdersJson);
+      // Добавляем userId к заказу для правильной фильтрации в истории
+      if (user && user.id) {
+        console.log(`Сохраняем заказ для пользователя ID: ${user.id}`);
+        newOrder.userId = String(user.id);
+      } else {
+        console.warn("Заказ сохраняется без привязки к пользователю");
       }
 
-      const updatedOrders = [newOrder, ...existingOrders];
-
-      await AsyncStorage.setItem("orderHistory", JSON.stringify(updatedOrders));
-
-      console.log("Order saved to history successfully:", newOrder.id);
+      // Используем OrderHistoryService для сохранения заказа в истории
+      await OrderHistoryService.saveOrder(newOrder);
+      console.log("Заказ успешно сохранен в истории:", newOrder.id);
     } catch (error) {
-      console.error("Error saving order to history:", error);
+      console.error("Ошибка при сохранении заказа в истории:", error);
     }
   };
 
@@ -509,7 +510,7 @@ export default function CheckoutPage() {
 
       console.log("Clearing cart...");
 
-      const response = await fetch("http://192.168.0.117:8000/api/cart", {
+      const response = await fetch("http://192.168.0.104:8000/api/cart", {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -533,34 +534,47 @@ export default function CheckoutPage() {
       `Scheduling order ${orderId} to complete in ${delayMs / 1000} seconds`
     );
 
-    setTimeout(async () => {
+    window.setTimeout(async () => {
       try {
-        // Get current orders
-        const storedOrdersJson = await AsyncStorage.getItem("orderHistory");
-        if (!storedOrdersJson) {
-          console.error("No orders found in storage");
+        // Получаем заказ по ID
+        const orderToComplete = await OrderHistoryService.getOrderById(orderId);
+        if (!orderToComplete) {
+          console.error(`Order ${orderId} not found in history`);
           return;
         }
 
-        // Parse orders
-        const orders: Order[] = JSON.parse(storedOrdersJson);
-
-        // Find and update the specific order
-        const updatedOrders = orders.map((order) => {
-          if (order.id === orderId) {
-            console.log(`Changing order ${orderId} status to completed`);
-            return { ...order, status: "completed" as const };
-          }
-          return order;
-        });
-
-        // Save updated orders back to storage
-        await AsyncStorage.setItem(
-          "orderHistory",
-          JSON.stringify(updatedOrders)
-        );
-
+        // Обновляем статус заказа
+        await OrderHistoryService.updateOrderStatus(orderId, "completed");
         console.log(`Order ${orderId} has been marked as completed`);
+
+        // Также отправляем на сервер API для истории
+        try {
+          // Format the order for the server
+          const serverOrder = {
+            id: orderToComplete.id,
+            timestamp: new Date().toISOString(),
+            restaurant_name: orderToComplete.storeName,
+            items: orderToComplete.items,
+            total: orderToComplete.total,
+            status: orderToComplete.status,
+            delivery_address: orderToComplete.address,
+            payment_method: orderToComplete.paymentMethod,
+          };
+
+          // Send to server history
+          const success = await RestaurantOrderService.sendOrderToHistory(
+            serverOrder
+          );
+          if (success) {
+            console.log(`Order ${orderId} successfully sent to server history`);
+          } else {
+            console.log(
+              `Order ${orderId} saved locally but failed to send to server`
+            );
+          }
+        } catch (apiError) {
+          console.error("Error sending order to server history:", apiError);
+        }
       } catch (error) {
         console.error("Error updating order status:", error);
       }
@@ -789,9 +803,16 @@ export default function CheckoutPage() {
                     isPickup && selectedPoint
                       ? selectedPoint.coords.longitude
                       : 76.909,
-                  toLat: 43.258,
-                  toLng: 76.945,
+                  toLat:
+                    !isPickup && (selectedLocation || userLocation)
+                      ? (selectedLocation || userLocation)?.latitude
+                      : undefined,
+                  toLng:
+                    !isPickup && (selectedLocation || userLocation)
+                      ? (selectedLocation || userLocation)?.longitude
+                      : undefined,
                   customerName: contactName,
+                  useRealLocation: "true",
                 },
               });
             },
@@ -948,6 +969,29 @@ export default function CheckoutPage() {
               ? t("chechout.locationSelected")
               : t("chechout.tapMapToSelect")}
           </Text>
+          {userLocation && (
+            <TouchableOpacity
+              style={styles.useCurrentLocationButton}
+              onPress={() => {
+                setSelectedLocation(userLocation);
+                if (mapRef.current) {
+                  mapRef.current.animateToRegion(
+                    {
+                      ...currentRegion,
+                      latitude: userLocation.latitude,
+                      longitude: userLocation.longitude,
+                    },
+                    500
+                  );
+                }
+              }}
+            >
+              <Ionicons name="locate" size={20} color="#FFFFFF" />
+              <Text style={styles.useCurrentLocationText}>
+                Использовать мое текущее местоположение
+              </Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[
               styles.confirmLocationButton,
@@ -965,7 +1009,7 @@ export default function CheckoutPage() {
     </Modal>
   );
 
-  // Search addresses using Nominatim API
+  // Add search addresses using Nominatim API
   const searchAddresses = async (query: string) => {
     if (query.length < 3) {
       setAddressSearchResults([]);
@@ -1025,7 +1069,7 @@ export default function CheckoutPage() {
 
     searchTimeoutRef.current = setTimeout(() => {
       searchAddresses(query);
-    }, 300);
+    }, 300) as unknown as NodeJS.Timeout;
   };
 
   // Handle address input change with debounce
@@ -1182,72 +1226,47 @@ export default function CheckoutPage() {
 
           {/* Delivery Address Section - show only if not pickup */}
           {!isPickup && (
-            <View style={styles.addressSection}>
-              <View style={styles.addressHeader}>
-                <Text style={styles.addressTitle}>
+            <View style={styles.formSection}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>
                   {t("chechout.deliveryAddress")}
                 </Text>
-
                 <TouchableOpacity
-                  style={styles.savedAddressButton}
+                  style={styles.savedAddressesButton}
                   onPress={() => setShowAddressModal(true)}
                 >
-                  <Text style={styles.savedAddressButtonText}>
+                  <Text style={styles.savedAddressesButtonText}>
                     {t("chechout.savedAddresses")}
                   </Text>
                 </TouchableOpacity>
               </View>
 
-              {/* Address search input */}
-              <View style={styles.searchAddressContainer}>
-                <TextInput
-                  style={styles.searchAddressInput}
-                  placeholder={t("Search address")}
-                  value={addressSearchInput}
-                  onChangeText={handleAddressInputChange}
-                />
-                {isSearching && (
-                  <ActivityIndicator
-                    size="small"
-                    color="#4A5D23"
-                    style={styles.searchLoader}
-                  />
-                )}
-              </View>
-
-              {/* Display address search results */}
-              {addressSearchResults.length > 0 && (
-                <View style={styles.searchResultsContainer}>
-                  <FlatList
-                    data={addressSearchResults}
-                    keyExtractor={(item, index) => `address-${index}`}
-                    keyboardShouldPersistTaps="handled"
-                    renderItem={({ item }) => (
-                      <TouchableOpacity
-                        style={styles.searchResultItem}
-                        onPress={() => handleSelectSearchAddress(item)}
-                      >
-                        <MaterialIcons
-                          name="location-on"
-                          size={20}
-                          color="#4A5D23"
-                        />
-                        <Text style={styles.searchResultText}>{item.name}</Text>
-                      </TouchableOpacity>
-                    )}
-                  />
+              {/* Real location info block */}
+              {userLocationObtained && (
+                <View style={styles.realLocationInfoContainer}>
+                  <View style={styles.realLocationIconContainer}>
+                    <Ionicons name="location" size={20} color="#4A5D23" />
+                  </View>
+                  <View style={styles.realLocationTextContainer}>
+                    <Text style={styles.realLocationTitle}>
+                      Ваше реальное местоположение используется
+                    </Text>
+                    <Text style={styles.realLocationDescription}>
+                      Для точной доставки и отслеживания
+                    </Text>
+                  </View>
                 </View>
               )}
 
               <TouchableOpacity
                 style={styles.mapSelectionButton}
-                onPress={getUserLocation}
+                onPress={handleOpenMap}
               >
-                <MaterialIcons name="my-location" size={24} color="#4A5D23" />
+                <MaterialIcons name="map" size={24} color="#4A5D23" />
                 <Text style={styles.mapSelectionText}>
                   {userLocation
-                    ? t("chechout.changeLocation")
-                    : t("Get My Location")}
+                    ? "Изменить местоположение на карте"
+                    : "Выбрать местоположение на карте"}
                 </Text>
               </TouchableOpacity>
 
@@ -1255,14 +1274,14 @@ export default function CheckoutPage() {
                 style={styles.input}
                 placeholder={t("chechout.streetAddress")}
                 value={address.street}
-                onChangeText={(value) => updateAddress("street", value)}
+                onChangeText={(text) => updateAddress("street", text)}
               />
 
               <TextInput
                 style={styles.input}
                 placeholder={t("chechout.apartment")}
                 value={address.apartment}
-                onChangeText={(value) => updateAddress("apartment", value)}
+                onChangeText={(text) => updateAddress("apartment", text)}
               />
 
               <View style={styles.cityPostalRow}>
@@ -1270,14 +1289,14 @@ export default function CheckoutPage() {
                   style={[styles.input, styles.cityInput]}
                   placeholder={t("chechout.city")}
                   value={address.city}
-                  onChangeText={(value) => updateAddress("city", value)}
+                  onChangeText={(text) => updateAddress("city", text)}
                 />
 
                 <TextInput
                   style={[styles.input, styles.postalInput]}
                   placeholder={t("chechout.postalCode")}
                   value={address.postalCode}
-                  onChangeText={(value) => updateAddress("postalCode", value)}
+                  onChangeText={(text) => updateAddress("postalCode", text)}
                   keyboardType="number-pad"
                 />
               </View>
@@ -1286,7 +1305,7 @@ export default function CheckoutPage() {
                 style={styles.input}
                 placeholder={t("chechout.deliveryInstructions")}
                 value={address.instructions}
-                onChangeText={(value) => updateAddress("instructions", value)}
+                onChangeText={(text) => updateAddress("instructions", text)}
                 multiline
               />
 
@@ -1690,7 +1709,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  addressSection: {
+  formSection: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 16,
@@ -1701,37 +1720,40 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  addressHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  addressTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333333",
-  },
-  savedAddressButton: {
+  savedAddressesButton: {
     padding: 4,
   },
-  savedAddressButtonText: {
+  savedAddressesButtonText: {
     color: "#4A5D23",
     fontSize: 12,
     fontWeight: "600",
   },
-  mapSelectionButton: {
+  realLocationInfoContainer: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    marginBottom: 8,
-    backgroundColor: "#F8F8F8",
-    borderRadius: 8,
+    marginBottom: 16,
   },
-  mapSelectionText: {
-    marginLeft: 8,
+  realLocationIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#E5F1E0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  realLocationTextContainer: {
+    flex: 1,
+  },
+  realLocationTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333333",
+    marginBottom: 4,
+  },
+  realLocationDescription: {
     fontSize: 14,
-    color: "#333",
+    color: "#666666",
   },
   input: {
     backgroundColor: "#F9F9F9",
@@ -2141,5 +2163,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#333333",
     marginLeft: 8,
+  },
+  useCurrentLocationButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    marginBottom: 8,
+    backgroundColor: "#FF6347",
+    borderRadius: 8,
+  },
+  useCurrentLocationText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: "#FFFFFF",
+    fontWeight: "600",
+  },
+  mapSelectionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    marginBottom: 8,
+    backgroundColor: "#FF6347",
+    borderRadius: 8,
+  },
+  mapSelectionText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: "#FFFFFF",
+    fontWeight: "600",
   },
 });

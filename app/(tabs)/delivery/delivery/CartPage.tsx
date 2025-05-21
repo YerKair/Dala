@@ -18,8 +18,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Import our utils
 import { getProductImage } from "../utils/helpers";
-import { getImage } from "../utils/simpleImageStorage";
-import ImageManager from "../utils/components/ImageManager";
+import { getCategoryImage } from "../utils/CategoryManager";
 import { useAuth } from "../../../auth/AuthContext";
 
 // Types for Cart API response
@@ -56,15 +55,36 @@ const CartItemComponent: React.FC<CartItemComponentProps> = ({
   onIncrement,
   onDecrement,
 }) => {
+  const [imageUri, setImageUri] = useState<string | null>(null);
+
+  // Load product image when component mounts
+  useEffect(() => {
+    const loadImage = async () => {
+      try {
+        const image = await getProductImage(item.product_id.toString());
+        setImageUri(image);
+      } catch (error) {
+        console.error("Error loading product image:", error);
+      }
+    };
+
+    loadImage();
+  }, [item.product_id]);
+
   return (
     <View style={styles.cartItem}>
       <View style={styles.cartItemImageContainer}>
-        <ImageManager
-          entityId={item.product_id.toString()}
-          entityType="product"
-          size="small"
-          style={styles.cartItemImageWrapper}
-        />
+        {imageUri ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.cartItemImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={styles.cartItemImagePlaceholder}>
+            <Ionicons name="image-outline" size={24} color="#999" />
+          </View>
+        )}
       </View>
       <View style={styles.cartItemInfo}>
         <Text style={styles.cartItemName} numberOfLines={2}>
@@ -142,7 +162,7 @@ const CartPage: React.FC = () => {
         throw new Error("Authentication token not found");
       }
 
-      const response = await fetch("http://192.168.0.117:8000/api/cart", {
+      const response = await fetch("http://192.168.0.104:8000/api/cart", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -250,7 +270,7 @@ const CartPage: React.FC = () => {
             console.log("Clearing cart...");
 
             // Call the API to clear the cart - using DELETE method
-            const response = await fetch("http://192.168.0.117:8000/api/cart", {
+            const response = await fetch("http://192.168.0.104:8000/api/cart", {
               method: "DELETE",
               headers: {
                 "Content-Type": "application/json",
@@ -458,9 +478,15 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginRight: 12,
   },
-  cartItemImageWrapper: {
+  cartItemImage: {
     width: "100%",
     height: "100%",
+  },
+  cartItemImagePlaceholder: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
   },
   cartItemInfo: {
     flex: 1,

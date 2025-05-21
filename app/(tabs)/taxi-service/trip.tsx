@@ -34,12 +34,14 @@ import {
   tripManager,
   taxiRequestsManager,
   TaxiRequest,
+  forceResetTripState,
 } from "../../store/globalState";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CancelConfirmationDialog from "./CancelConfirmationDialog";
 import { useAuth } from "../../auth/AuthContext";
 import SonarAnimation from "../../../components/SonarAnimation";
 import { useTranslation } from "react-i18next";
+import { TaxiService } from "../../services/TaxiService";
 
 // Enable LayoutAnimation for Android
 if (
@@ -65,6 +67,18 @@ interface DriverInfo {
   licensePlate: string;
   phone?: string;
 }
+
+// Demo driver data
+const DEMO_DRIVER = {
+  id: "d1",
+  name: "Ivan Shastyn",
+  rating: 4.8,
+  phone: "+7 777 123 4567",
+  photoUrl: "https://randomuser.me/api/portraits/men/32.jpg",
+  carModel: "Toyota Camry",
+  carColor: "White",
+  carPlate: "A 123 BC",
+};
 
 export default function TaxiTripScreen() {
   const { t } = useTranslation();
@@ -136,14 +150,14 @@ export default function TaxiTripScreen() {
   });
 
   // Driver information - initialize from globalState if available
-  const driver: DriverInfo = {
+  const [driver, setDriver] = useState<DriverInfo>({
     id: globalState.tripData.driverId || "driver123",
     name: globalState.tripData.driverName || "Ivan Shastyn",
     photo: require("@/assets/images/driver-photo.jpg"),
     rating: 5.0,
     car: "Grey Chevrolet Cobalt",
     licensePlate: "666QSO2",
-  };
+  });
 
   // Driver info derived from driver object
   const driverName = driver?.name || "Driver";
@@ -182,50 +196,475 @@ export default function TaxiTripScreen() {
     return roles.includes("driver");
   }, [user]);
 
+  // Добавляем состояние для хранения времени последней проверки событий
+  const [lastEventCheck, setLastEventCheck] = useState<number>(Date.now());
+
+  // Функция для проверки новых событий поездки
+  const checkTripEvents = async () => {
+    if (!user || !user.id) return;
+
+    try {
+      // Получаем события для этого пользователя, которые произошли с момента последней проверки
+      const events = await TaxiService.getTripEventsForUser(
+        user.id.toString(),
+        lastEventCheck
+      );
+
+      if (events.length > 0) {
+        console.log(`Found ${events.length} new trip events`);
+
+        // Обрабатываем каждое событие по порядку (от старых к новым)
+        for (const event of events) {
+          console.log(
+            `Processing event: ${event.type} for trip ${event.tripId}`
+          );
+
+          // Обновляем UI на основе типа события
+          if (event.type === "trip_accepted") {
+            // Водитель принял заказ
+            if (event.customerId === user.id.toString()) {
+              console.log(`Trip accepted by driver: ${event.driverName}`);
+              setDriverFound(true);
+              setIsSearchingDriver(false);
+
+              // Обновляем информацию о водителе
+              setDriver({
+                id: event.driverId,
+                name: event.driverName,
+                photo: require("../../../assets/images/driver-photo.jpg"),
+                rating: 4.8,
+                car: "Toyota Camry",
+                licensePlate: "A 234 BC",
+                phone: "+7 777 123 4567",
+              });
+
+              // Переходим к обновлению активных данных поездки
+              await fetchUserActiveRequest();
+            }
+          } else if (
+            event.type === "trip_completed" ||
+            event.type === "trip_cancelled"
+          ) {
+            // Поездка завершена или отменена
+            if (
+              event.customerId === user.id.toString() ||
+              event.driverId === user.id.toString()
+            ) {
+              console.log(`Trip ${event.type.replace("trip_", "")}`);
+
+              if (event.type === "trip_completed") {
+                setTripStatus("completed");
+                setShowTripCompletedModal(true);
+              } else {
+                setTripStatus("cancelled");
+                Alert.alert(
+                  t("taxi.trip.tripCancelled"),
+                  t("taxi.trip.tripCancelledMessage"),
+                  [
+                    {
+                      text: t("ok"),
+                      onPress: () => {
+                        tripManager.startOrderFlow();
+                        globalState.needsNewOrder = true;
+                        router.replace("/(tabs)/taxi-service/taxi");
+                      },
+                    },
+                  ]
+                );
+              }
+            }
+          } else if (event.type.startsWith("trip_")) {
+            // Обновление статуса поездки
+            const newStatus = event.type.replace("trip_", "");
+            if (
+              event.customerId === user.id.toString() ||
+              event.driverId === user.id.toString()
+            ) {
+              console.log(`Trip status updated to: ${newStatus}`);
+
+              // Обновляем статус поездки в UI
+              if (newStatus === "on_the_way" || newStatus === "arrived") {
+                setTripStatus("waiting");
+              } else if (newStatus === "in_progress") {
+                setTripStatus("active");
+              } else {
+                setTripStatus(newStatus);
+              }
+
+              // Обновляем глобальное состояние
+              tripManager.updateTripStatus(newStatus);
+            }
+          }
+        }
+
+        // Обновляем время последней проверки
+        setLastEventCheck(Date.now());
+      }
+    } catch (error) {
+      console.error("Error checking trip events:", error);
+    }
+  };
+
+  // Добавляем интервал для регулярной проверки событий поездки
+  useEffect(() => {
+    // Запускаем периодическую проверку событий каждые 3 секунды
+    const eventCheckInterval = setInterval(checkTripEvents, 3000);
+
+    // Очищаем интервал при размонтировании компонента
+    return () => clearInterval(eventCheckInterval);
+  }, [user, lastEventCheck]);
+
   // Получаем активный заказ пользователя
   const fetchUserActiveRequest = async () => {
     if (!user || !user.id) return;
 
     try {
-      const userId = user.id.toString();
-      const userRoles = user.role ? user.role.split(",") : [];
-      const isDriver = userRoles.includes("driver");
+      console.log(`Fetching active request for user ${user.id}`);
 
-      // Get active request but only if the user is properly authorized to see it
-      const userRequest = await taxiRequestsManager.getUserActiveRequest(
-        userId
-      );
+      // First check if we have trip data in global state
+      if (globalState.tripData.isActive) {
+        console.log("Using existing trip data from global state");
 
-      if (userRequest) {
-        console.log("Found active request for user:", userRequest);
+        // If we have coordinates in global state, use them
+        if (
+          globalState.pickupCoordinates &&
+          globalState.destinationCoordinates
+        ) {
+          setRoute([
+            globalState.pickupCoordinates,
+            globalState.destinationCoordinates,
+          ]);
 
-        // If a driver is trying to view a customer request they haven't accepted,
-        // don't display it
-        if (isDriver && userRequest.driverId !== userId) {
-          console.log("Driver not authorized to view this request");
-          // Redirect the driver back to taxi screen to see available orders
-          router.replace("/(tabs)/taxi-service/taxi");
-          return null;
+          // Update map region to show the route
+          const midLat =
+            (globalState.pickupCoordinates.latitude +
+              globalState.destinationCoordinates.latitude) /
+            2;
+          const midLng =
+            (globalState.pickupCoordinates.longitude +
+              globalState.destinationCoordinates.longitude) /
+            2;
+
+          setMapRegion({
+            latitude: midLat,
+            longitude: midLng,
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02,
+          });
         }
 
-        setActiveRequest(userRequest);
-        return userRequest;
-      } else {
-        console.log("No active request found for user:", userId);
+        // Continue with existing global state data
+        return;
+      }
 
-        // If no active request found, but trip is active in global state,
-        // we might have stale data, redirect to taxi screen
-        if (!globalState.activeTaxiTrip) {
-          console.log("No active trip found, redirecting to taxi screen");
-          router.replace("/(tabs)/taxi-service/taxi");
-          return null;
+      // Массив ключей, по которым будем проверять наличие сохраненных данных
+      const keysToCheck = [
+        `active_trip_${user.id}`, // 1. Активный трип с информацией о водителе
+        `user_active_request_${user.id}`, // 2. Полный объект запроса
+        `taxiRequests_${user.id}`, // 3. Массив запросов для пользователя
+      ];
+
+      let foundTrip = false;
+
+      // 1. Проверяем наличие активного трипа, обновленного водителем
+      const activeTripKey = `active_trip_${user.id}`;
+      const customerTripJson = await AsyncStorage.getItem(activeTripKey);
+
+      if (customerTripJson) {
+        console.log("Found customer trip data updated by driver");
+        const customerTrip = JSON.parse(customerTripJson);
+
+        // Use the driver-updated trip information
+        if (
+          customerTrip.driverId &&
+          customerTrip.driverId !== "pending_driver"
+        ) {
+          console.log(`Trip accepted by driver: ${customerTrip.driverName}`);
+          setDriverFound(true);
+          setIsSearchingDriver(false);
+          foundTrip = true;
+
+          // Immediately update the UI to show driver found
+          // and prevent redirection to taxi screen
+          if (!driver || !driver.id) {
+            setDriver({
+              id: customerTrip.driverId,
+              name: customerTrip.driverName,
+              photo: require("../../../assets/images/driver-photo.jpg"),
+              rating: 4.8,
+              car: "Toyota Camry",
+              licensePlate: "A 234 BC",
+              phone: "+7 777 123 4567",
+            });
+          }
+
+          // Update trip status in global state
+          tripManager.startTrip({
+            driverId: customerTrip.driverId,
+            driverName: customerTrip.driverName,
+            origin: customerTrip.pickupAddress,
+            destination: customerTrip.destinationAddress,
+            fare: customerTrip.fare,
+            duration: 120,
+          });
+
+          // Если есть координаты, обновляем маршрут
+          if (
+            customerTrip.pickupCoordinates &&
+            customerTrip.destinationCoordinates
+          ) {
+            setRoute([
+              customerTrip.pickupCoordinates,
+              customerTrip.destinationCoordinates,
+            ]);
+
+            // Обновляем регион карты
+            const midLat =
+              (customerTrip.pickupCoordinates.latitude +
+                customerTrip.destinationCoordinates.latitude) /
+              2;
+            const midLng =
+              (customerTrip.pickupCoordinates.longitude +
+                customerTrip.destinationCoordinates.longitude) /
+              2;
+
+            setMapRegion({
+              latitude: midLat,
+              longitude: midLng,
+              latitudeDelta: 0.02,
+              longitudeDelta: 0.02,
+            });
+          }
+
+          console.log("Updated trip state with driver info from AsyncStorage");
         }
+      }
 
-        return null;
+      // 2. Проверяем наличие полного запроса пользователя
+      if (!foundTrip) {
+        const userRequestKey = `user_active_request_${user.id}`;
+        const fullRequestJson = await AsyncStorage.getItem(userRequestKey);
+
+        if (fullRequestJson) {
+          console.log("Found full trip request data saved for user");
+          const fullRequest = JSON.parse(fullRequestJson);
+
+          setActiveRequest(fullRequest);
+          foundTrip = true;
+
+          // Update driver status based on request status
+          setDriverFound(
+            fullRequest.driverId !== null &&
+              fullRequest.driverId !== "pending_driver"
+          );
+          setIsSearchingDriver(
+            fullRequest.status === "pending" ||
+              fullRequest.driverId === "pending_driver"
+          );
+
+          // Update route based on request coordinates
+          if (fullRequest.pickup && fullRequest.destination) {
+            setRoute([
+              fullRequest.pickup.coordinates,
+              fullRequest.destination.coordinates,
+            ]);
+
+            // Update map region
+            const midLat =
+              (fullRequest.pickup.coordinates.latitude +
+                fullRequest.destination.coordinates.latitude) /
+              2;
+            const midLng =
+              (fullRequest.pickup.coordinates.longitude +
+                fullRequest.destination.coordinates.longitude) /
+              2;
+
+            setMapRegion({
+              latitude: midLat,
+              longitude: midLng,
+              latitudeDelta: 0.02,
+              longitudeDelta: 0.02,
+            });
+          }
+
+          // If we have a driver assigned, update the status
+          if (
+            fullRequest.driverId &&
+            fullRequest.driverId !== "pending_driver"
+          ) {
+            // Update the globalState's tripData
+            tripManager.startTrip({
+              driverId: fullRequest.driverId,
+              driverName: "Your Driver",
+              origin: fullRequest.pickup.name,
+              destination: fullRequest.destination.name,
+              fare: fullRequest.fare,
+              duration: 120,
+            });
+          }
+        }
+      }
+
+      // 3. Если предыдущие методы не сработали, проверяем массив запросов пользователя
+      if (!foundTrip) {
+        const userRequestsKey = `taxiRequests_${user.id}`;
+        const userRequestsJson = await AsyncStorage.getItem(userRequestsKey);
+
+        if (userRequestsJson) {
+          console.log("Found user requests array in storage");
+          const userRequests = JSON.parse(userRequestsJson);
+
+          // Ищем активный запрос пользователя (не отмененный и не завершенный)
+          const activeUserRequest = userRequests.find(
+            (req: TaxiRequest) =>
+              req.status !== "completed" && req.status !== "cancelled"
+          );
+
+          if (activeUserRequest) {
+            console.log(
+              "Found active request in user requests array:",
+              activeUserRequest.id
+            );
+            setActiveRequest(activeUserRequest);
+            foundTrip = true;
+
+            // Update driver status based on request status
+            setDriverFound(
+              activeUserRequest.driverId !== null &&
+                activeUserRequest.driverId !== "pending_driver"
+            );
+            setIsSearchingDriver(
+              activeUserRequest.status === "pending" ||
+                activeUserRequest.driverId === "pending_driver"
+            );
+
+            // Update route based on request coordinates
+            if (activeUserRequest.pickup && activeUserRequest.destination) {
+              setRoute([
+                activeUserRequest.pickup.coordinates,
+                activeUserRequest.destination.coordinates,
+              ]);
+
+              // Update map region
+              const midLat =
+                (activeUserRequest.pickup.coordinates.latitude +
+                  activeUserRequest.destination.coordinates.latitude) /
+                2;
+              const midLng =
+                (activeUserRequest.pickup.coordinates.longitude +
+                  activeUserRequest.destination.coordinates.longitude) /
+                2;
+
+              setMapRegion({
+                latitude: midLat,
+                longitude: midLng,
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
+              });
+            }
+
+            // If we have a driver assigned, update the status
+            if (
+              activeUserRequest.driverId &&
+              activeUserRequest.driverId !== "pending_driver"
+            ) {
+              // Update the globalState's tripData
+              tripManager.startTrip({
+                driverId: activeUserRequest.driverId,
+                driverName: "Your Driver",
+                origin: activeUserRequest.pickup.name,
+                destination: activeUserRequest.destination.name,
+                fare: activeUserRequest.fare,
+                duration: 120,
+              });
+            }
+          }
+        }
+      }
+
+      // 4. Если все предыдущие методы не сработали, используем старый метод
+      if (!foundTrip) {
+        // If we don't have active trip data in global state, try to fetch from local storage first
+        // as a fallback in case the API is unavailable
+        let request = await taxiRequestsManager.getUserActiveRequest(
+          user.id.toString()
+        );
+
+        // If we have a request from local storage, use it
+        if (request) {
+          console.log("Found active request in local storage:", request);
+          setActiveRequest(request);
+          foundTrip = true;
+
+          // Update route based on request coordinates
+          if (request.pickup && request.destination) {
+            setRoute([
+              request.pickup.coordinates,
+              request.destination.coordinates,
+            ]);
+
+            // Update map region
+            const midLat =
+              (request.pickup.coordinates.latitude +
+                request.destination.coordinates.latitude) /
+              2;
+            const midLng =
+              (request.pickup.coordinates.longitude +
+                request.destination.coordinates.longitude) /
+              2;
+
+            setMapRegion({
+              latitude: midLat,
+              longitude: midLng,
+              latitudeDelta: 0.02,
+              longitudeDelta: 0.02,
+            });
+          }
+
+          // Update driver status based on request status
+          setDriverFound(
+            request.driverId !== null && request.driverId !== "pending_driver"
+          );
+          setIsSearchingDriver(
+            request.status === "pending" ||
+              request.driverId === "pending_driver"
+          );
+
+          // If we have a driver assigned, update the status
+          if (request.driverId && request.driverId !== "pending_driver") {
+            // Update the globalState's tripData
+            tripManager.startTrip({
+              driverId: request.driverId,
+              driverName:
+                request.driverId === "pending_driver"
+                  ? "Seeking Driver..."
+                  : "Your Driver",
+              origin: request.pickup.name,
+              destination: request.destination.name,
+              fare: request.fare,
+              duration: 120,
+            });
+          }
+
+          return request;
+        }
+      }
+
+      // 5. Если активный запрос не найден нигде, перенаправляем на экран заказа такси
+      if (!foundTrip) {
+        console.log("No active request found anywhere");
+
+        // Check if we have an active trip in globalState before redirecting
+        if (!globalState.tripData.isActive && !customerTripJson) {
+          console.log(
+            "No active trip found anywhere, redirecting to taxi screen"
+          );
+          tripManager.startOrderFlow(); // Reset trip state
+          router.replace("/(tabs)/taxi-service/taxi");
+        }
       }
     } catch (error) {
-      console.error("Error fetching active request:", error);
-      return null;
+      console.error("Error fetching user active request:", error);
     }
   };
 
@@ -607,7 +1046,7 @@ export default function TaxiTripScreen() {
 
   // Cancel trip function - show cancel dialog
   const cancelTrip = () => {
-    setShowCancelDialog(true);
+    handleCancelTrip();
   };
 
   // Handle dialog close
@@ -678,7 +1117,7 @@ export default function TaxiTripScreen() {
       let cancelMessage = "Trip cancelled";
       let fee = 0;
 
-      // Найти и удалить активный заказ из хранилища
+      // Get active request
       const activeRequest = await taxiRequestsManager.getUserActiveRequest(
         user.id
       );
@@ -695,36 +1134,91 @@ export default function TaxiTripScreen() {
           cancelMessage = `Trip cancelled with a $${fee} cancellation fee`;
         }
 
-        // 1. Получаем все заказы
-        const allRequestsJson = await AsyncStorage.getItem("taxiRequests");
-        if (allRequestsJson) {
-          const allRequests: TaxiRequest[] = JSON.parse(allRequestsJson);
-
-          // 2. Удаляем текущий заказ из списка
-          const filteredRequests = allRequests.filter(
-            (req) => req.id !== activeRequest.id
+        try {
+          // Try to cancel the trip via API first
+          const response = await fetch(
+            `${TaxiService["API_URL"]}/trips/${activeRequest.id}/cancel`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                user_id: user.id,
+                cancellation_fee: fee,
+              }),
+            }
           );
 
-          // 3. Сохраняем обновленный список заказов (без отмененного)
-          await AsyncStorage.setItem(
-            "taxiRequests",
-            JSON.stringify(filteredRequests)
+          console.log("API cancellation response:", response.status);
+
+          // If API cancellation failed, fall back to local cancellation
+          if (!response.ok) {
+            console.log(
+              "API cancellation failed, falling back to local cancellation"
+            );
+
+            // Update request status locally
+            await taxiRequestsManager.updateRequestStatus(
+              activeRequest.id,
+              "cancelled"
+            );
+
+            // Also remove from local storage
+            const allRequestsJson = await AsyncStorage.getItem("taxiRequests");
+            if (allRequestsJson) {
+              const allRequests: TaxiRequest[] = JSON.parse(allRequestsJson);
+              const filteredRequests = allRequests.filter(
+                (req) => req.id !== activeRequest.id
+              );
+              await AsyncStorage.setItem(
+                "taxiRequests",
+                JSON.stringify(filteredRequests)
+              );
+              console.log(
+                "Removed request from local storage:",
+                activeRequest.id
+              );
+            }
+          }
+        } catch (error) {
+          console.error("Error cancelling trip via API:", error);
+
+          // Fallback to local cancellation
+          // Update request status locally
+          await taxiRequestsManager.updateRequestStatus(
+            activeRequest.id,
+            "cancelled"
           );
 
-          console.log("Removed request from storage:", activeRequest.id);
-          console.log("Remaining requests:", filteredRequests.length);
+          // Also remove from local storage
+          const allRequestsJson = await AsyncStorage.getItem("taxiRequests");
+          if (allRequestsJson) {
+            const allRequests: TaxiRequest[] = JSON.parse(allRequestsJson);
+            const filteredRequests = allRequests.filter(
+              (req) => req.id !== activeRequest.id
+            );
+            await AsyncStorage.setItem(
+              "taxiRequests",
+              JSON.stringify(filteredRequests)
+            );
+            console.log(
+              "Removed request from local storage after API error:",
+              activeRequest.id
+            );
+          }
         }
       }
 
-      // Полностью сбросить глобальное состояние
+      // Reset global state
       resetTripAndCoordinates();
       console.log("Trip state reset after cancellation");
 
-      // Сбросить состояние в компоненте
+      // Reset component state
       setActiveRequest(null);
       setTripStatus("cancelled");
-      setIsSearchingDriver(false); // Reset searching state
-      setDriverFound(false); // Reset driver found state
+      setIsSearchingDriver(false);
+      setDriverFound(false);
 
       // Show cancellation alert
       Alert.alert(t("taxi.trip.tripCancelled"), cancelMessage, [
@@ -734,14 +1228,14 @@ export default function TaxiTripScreen() {
             setShowCancelDialog(false);
 
             // Navigate to taxi order screen to allow creating a new order
-            tripManager.startOrderFlow(); // Make sure order flow is reset
-            globalState.needsNewOrder = true; // Explicitly set flag to ensure new order
+            tripManager.startOrderFlow();
+            globalState.needsNewOrder = true;
             router.replace("/(tabs)/taxi-service/taxi");
           },
         },
       ]);
     } catch (error) {
-      console.error("Error cancelling trip:", error);
+      console.error("Error in trip cancellation:", error);
       Alert.alert("Error", "Failed to cancel trip. Please try again.");
     }
   };
@@ -786,7 +1280,7 @@ export default function TaxiTripScreen() {
     return stars;
   };
 
-  // Start the driver search process and monitor state changes// Start the driver search process and monitor state changes
+  // Start the driver search process and monitor state changes
   useEffect(() => {
     // Don't use automatic driver search, just check the global state for changes
     if (
@@ -997,6 +1491,166 @@ export default function TaxiTripScreen() {
 
     return { latitude: newLat, longitude: newLng };
   };
+
+  // Effect to check for trip updates periodically
+  useEffect(() => {
+    // Don't run polling if user is a driver
+    if (hasTaxiRole) return;
+
+    // Only poll for updates if we're in search mode
+    if (isSearchingDriver && user && user.id) {
+      console.log("Starting trip update polling");
+
+      // Poll for trip updates every 5 seconds
+      const updateInterval = setInterval(async () => {
+        try {
+          let driverFound = false;
+
+          // Проверяем все возможные источники данных о поездке
+
+          // 1. Проверяем активный трип
+          const activeTripKey = `active_trip_${user.id}`;
+          const customerTripJson = await AsyncStorage.getItem(activeTripKey);
+
+          if (customerTripJson) {
+            const customerTrip = JSON.parse(customerTripJson);
+
+            // If driver has been assigned, update UI
+            if (
+              customerTrip.driverId &&
+              customerTrip.driverId !== "pending_driver"
+            ) {
+              console.log(
+                `Trip accepted by driver: ${customerTrip.driverName}`
+              );
+
+              // Update UI state
+              setDriverFound(true);
+              setIsSearchingDriver(false);
+              driverFound = true;
+
+              // Update driver info
+              setDriver({
+                id: customerTrip.driverId,
+                name: customerTrip.driverName,
+                photo: require("../../../assets/images/driver-photo.jpg"),
+                rating: 4.8,
+                car: "Toyota Camry",
+                licensePlate: "A 234 BC",
+                phone: "+7 777 123 4567",
+              });
+
+              // Update trip status in global state
+              tripManager.startTrip({
+                driverId: customerTrip.driverId,
+                driverName: customerTrip.driverName,
+                origin: customerTrip.pickupAddress,
+                destination: customerTrip.destinationAddress,
+                fare: customerTrip.fare,
+                duration: 120,
+              });
+
+              // Если есть координаты, обновляем маршрут
+              if (
+                customerTrip.pickupCoordinates &&
+                customerTrip.destinationCoordinates
+              ) {
+                setRoute([
+                  customerTrip.pickupCoordinates,
+                  customerTrip.destinationCoordinates,
+                ]);
+
+                // Обновляем регион карты
+                const midLat =
+                  (customerTrip.pickupCoordinates.latitude +
+                    customerTrip.destinationCoordinates.latitude) /
+                  2;
+                const midLng =
+                  (customerTrip.pickupCoordinates.longitude +
+                    customerTrip.destinationCoordinates.longitude) /
+                  2;
+
+                setMapRegion({
+                  latitude: midLat,
+                  longitude: midLng,
+                  latitudeDelta: 0.02,
+                  longitudeDelta: 0.02,
+                });
+              }
+            }
+          }
+
+          // Если водитель найден, прекращаем периодический опрос
+          if (driverFound) {
+            console.log("Driver found, stopping polling");
+            clearInterval(updateInterval);
+          }
+        } catch (error) {
+          console.error("Error polling for trip updates:", error);
+        }
+      }, 5000);
+
+      // Clean up on unmount
+      return () => clearInterval(updateInterval);
+    }
+  }, [isSearchingDriver, user, hasTaxiRole]);
+
+  // Найдем функцию handleCancelTrip и изменим ее
+  const handleCancelTrip = async () => {
+    // Show confirmation dialog
+    Alert.alert(t("taxi.cancelTripTitle"), t("taxi.cancelTripConfirmation"), [
+      {
+        text: t("general.no"),
+        style: "cancel",
+      },
+      {
+        text: t("general.yes"),
+        style: "destructive",
+        onPress: async () => {
+          setIsLoading(true);
+          try {
+            // Отменяем поездку через API
+            if (taxiRequestId) {
+              console.log("Cancelling trip with ID:", taxiRequestId);
+              await TaxiService.cancelTrip(taxiRequestId);
+            }
+
+            // Отменяем поездку локально через tripManager
+            tripManager.cancelTrip("User cancelled trip");
+
+            // Дополнительная очистка состояния
+            if (user && user.id) {
+              console.log("Performing complete state reset for user:", user.id);
+              await forceResetTripState(user.id.toString());
+            }
+
+            // Небольшая задержка для завершения всех операций
+            setTimeout(() => {
+              console.log("Navigating back to taxi screen after cancel");
+              router.replace("/(tabs)/taxi-service/taxi");
+            }, 500);
+          } catch (error) {
+            console.error("Error cancelling trip:", error);
+            Alert.alert(t("general.error"), t("taxi.cancelTripError"));
+          } finally {
+            setIsLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  // В самом начале функции, после констант добавим состояние загрузки
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [taxiRequestId, setTaxiRequestId] = useState<string | null>(null);
+
+  // В функции fetchUserActiveRequest найдем ID заказа такси
+  useEffect(() => {
+    if (activeRequest && activeRequest.id) {
+      setTaxiRequestId(activeRequest.id);
+      console.log("Set taxi request ID:", activeRequest.id);
+    }
+  }, [activeRequest]);
 
   return (
     <KeyboardAvoidingView

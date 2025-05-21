@@ -15,7 +15,7 @@ import {
 import { Ionicons, MaterialIcons, Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useApi } from "../utils/apiService";
-import { getProductImage, getProductGallery } from "../utils/imageHelper";
+import { getProductImage, getProductGallery } from "../utils/helpers";
 import { useAuth } from "../../../auth/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -48,31 +48,17 @@ export default function ProductDetail() {
       // If the product has a category_id but no category info, fetch the category
       if (data.category_id && !data.category) {
         try {
-          // Get token for auth
-          let token = await AsyncStorage.getItem("token");
-          if (!token) {
-            token = await AsyncStorage.getItem("userToken");
-          }
-
           // Fetch category info
-          const categoryResponse = await fetch(
-            `http://192.168.0.117:8000/api/categories/${data.category_id}`,
-            {
-              headers: token
-                ? {
-                    Accept: "application/json",
-                    Authorization: `Bearer ${token}`,
-                  }
-                : {
-                    Accept: "application/json",
-                  },
-            }
+          const categoryResponse = await api.getCategories();
+
+          // Find the category from the response
+          const foundCategory = categoryResponse.find(
+            (cat: any) => cat.id.toString() === data.category_id.toString()
           );
 
-          if (categoryResponse.ok) {
-            const categoryData = await categoryResponse.json();
+          if (foundCategory) {
             // Update product with category info
-            setProduct({ ...data, category: categoryData });
+            setProduct({ ...data, category: foundCategory });
           }
         } catch (categoryError) {
           console.error("Error loading category info:", categoryError);
@@ -167,7 +153,7 @@ export default function ProductDetail() {
 
       // Make API call to add product to cart
       const response = await fetch(
-        `http://192.168.0.117:8000/api/cart/${productId}`,
+        `http://192.168.0.104:8000/api/cart/${productId}`,
         {
           method: "POST",
           headers: {

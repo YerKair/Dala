@@ -21,7 +21,23 @@ export default {
   appName: "Delivery and Taxi",
   appSlogan: "Rural Rides, Delivered Right",
 
-  // Profile
+  // Profile Section
+  profileSection: {
+    personalInfo: "Personal Information",
+    personalInfoDesc: "Manage your personal data",
+    orderHistory: "Order History",
+    orderHistoryDesc: "View your order history",
+    taxiHistory: "Taxi History",
+    taxiHistoryDesc: "View your taxi rides history",
+    referFriends: "Refer to Friends",
+    referFriendsDesc: "Share app with your friends",
+    notifications: "Notifications",
+    notificationsDesc: "Manage your notifications",
+    workInDala: "Work in Dala",
+    workInDalaDesc: "Find your job",
+  },
+
+  // Profile (Legacy keys - keeping for backward compatibility)
   personalInfo: "Personal Information",
   settings: "Settings",
   logout: "Log out",
@@ -374,4 +390,23 @@ export default {
     addNewAddress: "Add New Address",
     failedToLoad: "Failed to load data. Please try again.",
   },
+
+  // Taxi History
+  taxiHistoryScreen: {
+    title: "Trip History",
+    loading: "Loading trip history...",
+    noTrips: "No trip history yet",
+    noTripsDescription:
+      "You don't have any taxi trips yet. Order a taxi to see them appear here.",
+    orderTaxi: "Order Taxi",
+    completed: "Completed",
+    pending: "Pending",
+    cancelled: "Cancelled",
+    details: "Trip Details",
+  },
+
+  // Order History
+  noOrdersYet: "No Orders Yet",
+  orderHistoryWillAppearHere:
+    "Your order history will appear here once you place orders",
 };

@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { saveImage, getImage } from "../simpleImageStorage";
+import { saveProductImage, getProductImage } from "../helpers";
 
 interface SimpleImagePickerProps {
   productId: string;
@@ -31,7 +31,7 @@ const SimpleImagePicker: React.FC<SimpleImagePickerProps> = ({
     const loadImage = async () => {
       setLoading(true);
       try {
-        const savedImage = await getImage(productId);
+        const savedImage = await getProductImage(productId);
         if (savedImage) {
           setImage(savedImage);
         }
@@ -74,7 +74,7 @@ const SimpleImagePicker: React.FC<SimpleImagePickerProps> = ({
           : selectedImage.uri;
 
         // Сохраняем изображение
-        await saveImage(productId, imageUri);
+        await saveProductImage(productId, imageUri);
 
         // Обновляем состояние
         setImage(imageUri);

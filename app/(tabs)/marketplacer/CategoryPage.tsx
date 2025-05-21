@@ -17,6 +17,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import Svg, { Path, Circle } from "react-native-svg";
+import { useTranslation } from "react-i18next";
 
 // Search Icon Component
 const SearchIcon = () => (
@@ -78,6 +79,7 @@ interface ProductItemProps {
 }
 
 const ProductItem = ({ item }: ProductItemProps) => {
+  const { t } = useTranslation();
   const navigateToProductDetail = () => {
     router.push({
       pathname: "/ProductDetailPage",
@@ -104,7 +106,7 @@ const ProductItem = ({ item }: ProductItemProps) => {
         />
       ) : (
         <View style={[styles.productImage, styles.noImage]}>
-          <Text>No Image</Text>
+          <Text>{t("marketplace.productItem.noImage")}</Text>
         </View>
       )}
       <View style={styles.productInfo}>
@@ -170,12 +172,17 @@ const Dropdown = ({ title, options, selected, onSelect }: DropdownProps) => {
 };
 
 export default function CategoryPage() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const category: string = params.category as string;
 
-  const [categoryFilter, setCategoryFilter] = useState("All");
-  const [conditionFilter, setConditionFilter] = useState("All");
+  const [categoryFilter, setCategoryFilter] = useState(
+    t("marketplace.categoryPage.all")
+  );
+  const [conditionFilter, setConditionFilter] = useState(
+    t("marketplace.categoryPage.all")
+  );
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -198,52 +205,140 @@ export default function CategoryPage() {
           console.log("Total products:", allProducts.length);
 
           // Filter products by current category
-          const filteredProducts = allProducts.filter(
-            (product) => product.category === category || category === "All"
-          );
+          let filteredProducts = allProducts.filter((product) => {
+            if (
+              category === t("marketplace.categoryPage.all") ||
+              product.category === category
+            ) {
+              if (
+                conditionFilter === t("marketplace.categoryPage.all") ||
+                product.condition === conditionFilter
+              ) {
+                return true;
+              }
+            }
+            return false;
+          });
+          console.log("Filtered products count:", filteredProducts.length);
 
-          console.log("Filtered products:", filteredProducts.length);
           setProducts(filteredProducts);
         } else {
           console.log("No products found in storage");
           setProducts([]);
         }
-
-        setIsLoading(false);
       } catch (error) {
         console.error("Error fetching products:", error);
-        setError("Failed to load products");
+        setError(t("marketplace.categoryPage.failedToLoad"));
+      } finally {
         setIsLoading(false);
       }
     };
 
     fetchProducts();
-  }, [category]);
+  }, [category, categoryFilter, conditionFilter]);
 
-  // Apply filters to products
-  const filteredProducts = products.filter((product) => {
-    // Apply category filter if not "All"
-    const matchCategory =
-      categoryFilter === "All" || product.category === categoryFilter;
-
-    // Apply condition filter if not "All"
-    const matchCondition =
-      conditionFilter === "All" || product.condition === conditionFilter;
-
-    return matchCategory && matchCondition;
-  });
-
-  // Function to navigate back
+  // Go back function
   const goBack = () => {
-    router.push("/(tabs)/marketplacer/MarketplaceScreen"); // Navigate specifically to marketplace
+    router.push("/marketplacer/MarketplaceScreen");
   };
 
-  // Function to retry loading
+  // Retry loading function
   const retryLoading = () => {
-    setProducts([]);
     setIsLoading(true);
     setError(null);
+    // Re-fetch products
+    fetchProducts();
   };
+
+  // Function to fetch products (extracted for reuse)
+  const fetchProducts = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // Here you would fetch stored products
+      const storedProductsJSON = await AsyncStorage.getItem(
+        "marketplace_products"
+      );
+      if (storedProductsJSON) {
+        const allProducts = JSON.parse(storedProductsJSON) as Product[];
+
+        // Filter products by current category
+        let filteredProducts = allProducts.filter((product) => {
+          if (
+            category === t("marketplace.categoryPage.all") ||
+            product.category === category
+          ) {
+            if (
+              conditionFilter === t("marketplace.categoryPage.all") ||
+              product.condition === conditionFilter
+            ) {
+              return true;
+            }
+          }
+          return false;
+        });
+
+        setProducts(filteredProducts);
+      } else {
+        setProducts([]);
+      }
+    } catch (error) {
+      console.error("Error fetching products:", error);
+      setError(t("marketplace.categoryPage.failedToLoad"));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Content to show based on loading and error states
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <View style={styles.centerContainer}>
+          <Text>{t("marketplace.categoryPage.loadingProducts")}</Text>
+        </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={styles.centerContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={retryLoading}>
+            <Text style={styles.retryButtonText}>
+              {t("marketplace.categoryPage.retryLoading")}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (products.length === 0) {
+      return (
+        <View style={styles.centerContainer}>
+          <Text>{t("marketplace.categoryPage.noProducts")}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={products}
+        renderItem={({ item }) => <ProductItem item={item} />}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.productList}
+      />
+    );
+  };
+
+  // Condition options
+  const conditionOptions = [
+    t("marketplace.categoryPage.all"),
+    t("marketplace.categoryPage.new"),
+    t("marketplace.categoryPage.used"),
+    t("marketplace.categoryPage.damaged"),
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -254,7 +349,7 @@ export default function CategoryPage() {
         <TouchableOpacity style={styles.backButton} onPress={goBack}>
           <BackButton />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{category || "Household goods"}</Text>
+        <Text style={styles.headerTitle}>{category}</Text>
       </View>
 
       {/* Search Bar */}
@@ -262,80 +357,28 @@ export default function CategoryPage() {
         <SearchIcon />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search"
+          placeholder={t("search")}
           placeholderTextColor="#888"
         />
       </View>
 
-      {/* Filters */}
-      <View style={styles.filtersContainer}>
-        <Text style={styles.filtersTitle}>Filters:</Text>
+      {/* Filter Section */}
+      <View style={styles.filterContainer}>
+        <Text style={styles.filterTitle}>
+          {t("marketplace.categoryPage.filter")}
+        </Text>
         <View style={styles.filtersRow}>
           <Dropdown
-            title="Category"
-            options={["All", "Furniture", "Tables", "Chairs", "Sofas"]}
-            selected={categoryFilter}
-            onSelect={setCategoryFilter}
-          />
-          <Dropdown
-            title="Condition"
-            options={["All", "New", "Used", "Damaged"]}
+            title={t("marketplace.categoryPage.condition")}
+            options={conditionOptions}
             selected={conditionFilter}
             onSelect={setConditionFilter}
           />
         </View>
       </View>
 
-      {/* Loading State */}
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading products...</Text>
-        </View>
-      ) : error ? (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={retryLoading}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <>
-          {/* Product Count */}
-          <View style={styles.productCountContainer}>
-            <Text style={styles.productCount}>
-              {filteredProducts.length > 0
-                ? `We found ${filteredProducts.length} ads`
-                : "No products found in this category"}
-            </Text>
-          </View>
-
-          {/* Products List */}
-          {filteredProducts.length > 0 ? (
-            <FlatList
-              data={filteredProducts}
-              renderItem={({ item }) => <ProductItem item={item} />}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={[
-                styles.listContainer,
-                { paddingBottom: 80 + insets.bottom },
-              ]}
-            />
-          ) : (
-            <View style={styles.emptyStateContainer}>
-              <Text style={styles.emptyStateText}>No products yet</Text>
-              <Text style={styles.emptyStateSubText}>
-                Be the first to add a product in this category
-              </Text>
-              <TouchableOpacity
-                style={styles.addProductButton}
-                onPress={() => router.push("/(tabs)/marketplacer/SubmitAdPage")}
-              >
-                <Text style={styles.addProductButtonText}>Add Product</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </>
-      )}
+      {/* Product List */}
+      <View style={styles.centerContainer}>{renderContent()}</View>
     </SafeAreaView>
   );
 }
@@ -375,11 +418,11 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     fontSize: 16,
   },
-  filtersContainer: {
+  filterContainer: {
     paddingHorizontal: 16,
     marginTop: 5,
   },
-  filtersTitle: {
+  filterTitle: {
     fontSize: 16,
     fontWeight: "500",
     marginBottom: 5,
@@ -420,16 +463,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#E0E0E0",
   },
-  productCountContainer: {
-    paddingHorizontal: 16,
-    marginTop: 5,
-    marginBottom: 10,
-  },
-  productCount: {
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  listContainer: {
+  productList: {
     padding: 16,
   },
   productItem: {
@@ -470,53 +504,15 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginRight: 10,
   },
-  emptyStateContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 30,
-    paddingTop: 50,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 10,
-  },
-  emptyStateSubText: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-    marginBottom: 20,
-  },
-  addProductButton: {
-    backgroundColor: "#4C6A2E",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  addProductButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
   noImage: {
     backgroundColor: "#E0E0E0",
     justifyContent: "center",
     alignItems: "center",
   },
-  loadingContainer: {
+  centerContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-  },
-  loadingText: {
-    fontSize: 16,
-    marginBottom: 20,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
   },
   errorText: {
     fontSize: 16,

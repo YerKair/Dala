@@ -111,7 +111,7 @@ export default function TabLayout() {
         <Tabs.Screen name="taxi-service/trip" />
         <Tabs.Screen name="ImagePickerTest" />
         <Tabs.Screen name="SimpleImagePickerTest" />
-        <Tabs.Screen name="ImageManagerTest" />
+        <Tabs.Screen name="CategoryManagerTest" />
       </Tabs>
     );
   }
@@ -225,7 +225,7 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="ImageManagerTest"
+          name="CategoryManagerTest"
           options={{
             headerShown: false,
           }}

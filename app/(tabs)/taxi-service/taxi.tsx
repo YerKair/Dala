@@ -20,14 +20,19 @@ import {
   Animated,
   LayoutAnimation,
   UIManager,
+  Modal,
+  Switch,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import {
   globalState,
   tripManager,
   taxiRequestsManager,
   TaxiRequest,
+  restoreTripState,
+  checkUserActiveTrip,
+  forceResetTripState,
 } from "../../store/globalState";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapView, { Marker, Polyline } from "react-native-maps";
@@ -39,6 +44,8 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { FontAwesome } from "@expo/vector-icons";
 import SonarAnimation from "../../../components/SonarAnimation";
 import { useTranslation } from "react-i18next";
+import { TaxiService, setGlobalToken } from "../../services/TaxiService";
+import LocationTracker from "../../components/LocationTracker";
 
 // Enable LayoutAnimation for Android
 if (
@@ -50,18 +57,102 @@ if (
 
 const { width } = Dimensions.get("window");
 
-// Интерфейс для адреса с координатами
-interface Address {
+// Обновить структуру типа Address, добавив latitude и longitude
+type Address = {
+  id: string;
   name: string;
+  fullAddress: string;
   coordinates: {
     latitude: number;
     longitude: number;
   };
-}
+  latitude: number;
+  longitude: number;
+};
 
 interface TaxiRequestExtended extends TaxiRequest {
   estimatedTime?: number;
 }
+
+interface CarType {
+  id: string;
+  name: string;
+  icon: string;
+  basePrice: number;
+  minPrice: number;
+  time: string;
+  image: any;
+}
+
+// Car types with base prices per kilometer
+const CAR_TYPES: CarType[] = [
+  {
+    id: "normal",
+    name: "Normal",
+    icon: "car-outline",
+    basePrice: 200, // Price per kilometer
+    minPrice: 1500, // Minimum price
+    time: "3-5",
+    image: require("../../../assets/images/car-normal.png"),
+  },
+  {
+    id: "minivan",
+    name: "Minivan",
+    icon: "car-sport-outline",
+    basePrice: 300, // Price per kilometer
+    minPrice: 2100, // Minimum price
+    time: "5-7",
+    image: require("../../../assets/images/car-minivan.png"),
+  },
+  {
+    id: "joint",
+    name: "Joint trip",
+    icon: "car-sport-outline",
+    basePrice: 150, // Price per kilometer
+    minPrice: 1100, // Minimum price
+    time: "7-10",
+    image: require("../../../assets/images/car-joint.png"),
+  },
+];
+
+// Function to calculate distance between two points
+const calculateDistanceBetweenPoints = (
+  point1: { latitude: number; longitude: number },
+  point2: { latitude: number; longitude: number }
+): number => {
+  if (!point1 || !point2) return 0;
+
+  // Convert degrees to radians
+  const lat1 = (point1.latitude * Math.PI) / 180;
+  const lon1 = (point1.longitude * Math.PI) / 180;
+  const lat2 = (point2.latitude * Math.PI) / 180;
+  const lon2 = (point2.longitude * Math.PI) / 180;
+
+  // Haversine formula
+  const dlon = lon2 - lon1;
+  const dlat = lat2 - lat1;
+  const a =
+    Math.sin(dlat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon / 2) ** 2;
+  const c = 2 * Math.asin(Math.sqrt(a));
+  const r = 6371; // Radius of earth in kilometers
+
+  // Return distance in kilometers
+  return c * r;
+};
+
+// Function to calculate price based on car type and distance
+const calculatePrice = (carTypeId: string, distance: number): number => {
+  // Find selected car type
+  const carType = CAR_TYPES.find((car) => car.id === carTypeId);
+  if (!carType) return 0;
+
+  // Calculate price based on distance and base price
+  const calculatedPrice = Math.round(distance * carType.basePrice);
+
+  // Apply minimum price if calculated price is too low
+  return Math.max(calculatedPrice, carType.minPrice);
+};
 
 export default function TaxiOrderScreen() {
   const { t } = useTranslation();
@@ -69,17 +160,61 @@ export default function TaxiOrderScreen() {
   const mapRef = useRef<MapView>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const destinationInputRef = useRef<TextInput>(null);
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+
+  // Initialize TaxiService with token immediately when component mounts
+  useEffect(() => {
+    console.log("TaxiScreen mounted - initializing with auth token");
+    // Use the dedicated method to update the taxi token
+    TaxiService.updateTaxiToken().then((success) => {
+      if (success) {
+        console.log("Successfully updated TaxiService token on mount");
+      } else {
+        console.log("Failed to update TaxiService token on mount");
+
+        // If direct method fails, try setting it directly if available
+        if (token) {
+          console.log("Setting token from AuthContext in TaxiService");
+          setGlobalToken(token);
+        }
+      }
+    });
+  }, []); // Empty dependency array so this runs once on mount
+
+  // Listen for token changes
+  useEffect(() => {
+    if (token) {
+      console.log("Token changed - updating in TaxiService");
+      setGlobalToken(token);
+
+      // Also update authToken for consistency
+      AsyncStorage.setItem("authToken", token)
+        .then(() => console.log("Updated authToken in AsyncStorage"))
+        .catch((err) => console.error("Failed to update authToken:", err));
+    } else if (user) {
+      // If we have a user but no token, something might be wrong with auth
+      console.log(
+        "Warning: Have user but no token, updating via TaxiService.updateTaxiToken"
+      );
+      TaxiService.updateTaxiToken();
+    }
+  }, [token, user]); // Listen for changes to token or user
+
+  // Other state declarations
   const [isLoading, setIsLoading] = useState(false);
   const [currentView, setCurrentView] = useState<
     "location" | "cars" | "requests"
   >("location");
   const [pickupAddress, setPickupAddress] = useState<Address>({
+    id: "",
     name: t("taxi.yourLocation"),
+    fullAddress: "",
     coordinates: {
       latitude: 43.238949,
       longitude: 76.889709,
     },
+    latitude: 43.238949,
+    longitude: 76.889709,
   });
   const [userLocation, setUserLocation] = useState<{
     latitude: number;
@@ -100,7 +235,7 @@ export default function TaxiOrderScreen() {
   const [pendingOrders, setPendingOrders] = useState<TaxiRequestExtended[]>([]);
   const [showDriverControls, setShowDriverControls] = useState(false);
   const [showCarSelection, setShowCarSelection] = useState(false);
-  const [selectedCarType, setSelectedCarType] = useState("Normal");
+  const [selectedCarType, setSelectedCarType] = useState(CAR_TYPES[0].id);
   const [showAddressSelection, setShowAddressSelection] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [isLocating, setIsLocating] = useState(true); // Статус определения местоположения
@@ -112,6 +247,8 @@ export default function TaxiOrderScreen() {
     latitudeDelta: 0.02,
     longitudeDelta: 0.02,
   });
+  const [tripDistance, setTripDistance] = useState<number>(0);
+  const [carPrices, setCarPrices] = useState<{ [key: string]: number }>({});
 
   // Keyboard state
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -155,16 +292,17 @@ export default function TaxiOrderScreen() {
     setRefreshing(false);
   };
 
-  // Function to fetch pending requests
+  // Fetch pending taxi requests from the server
   const fetchPendingRequests = async () => {
     try {
-      if (!user) return;
-
-      const requests = await taxiRequestsManager.getRequests();
-      console.log("Available requests for drivers:", requests.length);
+      // Use the TaxiService to get pending trips from the API
+      const requests = await TaxiService.getPendingTrips();
       setPendingOrders(requests);
     } catch (error) {
       console.error("Error fetching pending requests:", error);
+      setPendingOrders([]);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -305,129 +443,107 @@ export default function TaxiOrderScreen() {
     getUserLocation();
   }, []);
 
-  // Проверяем, есть ли уже активная поездка и запрашиваем местоположение
-  useEffect(() => {
-    if (!user || !user.id) return;
+  // Add state for trip ID tracking
+  const [activeTripId, setActiveTripId] = useState<string | undefined>(
+    undefined
+  );
+  const [isDriverMode, setIsDriverMode] = useState<boolean>(false);
 
-    console.log("User effect triggered, user ID:", user.id);
+  // Add a state for location tracking toggle
+  const [locationTrackingEnabled, setLocationTrackingEnabled] =
+    useState<boolean>(true);
 
-    // Проверяем, есть ли активная поездка для данного пользователя
-    const checkForActiveTrip = async () => {
-      try {
-        const userId = user.id.toString();
-        // Check if user is a driver
-        const userRoles = user.role ? user.role.split(",") : [];
-        const isDriver = userRoles.includes("driver");
+  // Update the checkForActiveTrip function to set active trip ID
+  const checkForActiveTrip = async () => {
+    try {
+      if (!user || !user.id) {
+        console.log("No user detected, skipping trip check");
+        return;
+      }
 
-        // Security check: Reset any trip data that doesn't belong to current user
-        if (globalState.activeTaxiTrip && globalState.tripData.isActive) {
-          // For drivers, check if they're assigned to this trip
-          if (isDriver && globalState.tripData.driverId !== userId) {
-            console.log(
-              "Security: Driver accessing trip they're not assigned to, resetting"
-            );
-            // Clear the global trip data to prevent data leakage
-            tripManager.startOrderFlow();
-          }
-          // For customers, check if the trip belongs to them (for now just reset, in a real app we'd check against backend)
-          else if (!isDriver) {
-            console.log("Security: Verifying customer trip ownership");
-            const activeRequest =
-              await taxiRequestsManager.getUserActiveRequest(userId);
-            if (!activeRequest) {
-              console.log(
-                "Security: No active request found for customer, resetting global trip data"
-              );
-              tripManager.startOrderFlow();
-            }
-          }
+      const userId = user.id.toString();
+      // Check if user is a driver
+      const userRoles = user?.role ? user.role.split(",") : [];
+      const isDriver = userRoles.includes("driver");
+      setIsDriverMode(isDriver);
+
+      // Security check: Reset any trip data that doesn't belong to current user
+      if (globalState.activeTaxiTrip && globalState.tripData.isActive) {
+        // For drivers, check if they're assigned to this trip
+        if (isDriver && globalState.tripData.driverId !== userId) {
+          console.log(
+            "Security: Driver accessing trip they're not assigned to, resetting"
+          );
+          // Clear the global trip data to prevent data leakage
+          tripManager.startOrderFlow();
         }
-
-        // If the user is a driver visiting the taxi screen, they should see the list
-        // of available requests, not redirect to a trip screen unless they've accepted one
-        if (isDriver && !globalState.activeTaxiTrip) {
-          // For drivers, only redirect if they have an active accepted trip
+        // For customers, check if the trip belongs to them (for now just reset, in a real app we'd check against backend)
+        else if (!isDriver) {
+          console.log("Security: Verifying customer trip ownership");
           const activeRequest = await taxiRequestsManager.getUserActiveRequest(
             userId
           );
-          if (
-            activeRequest &&
-            activeRequest.status === "accepted" &&
-            activeRequest.driverId === userId
-          ) {
-            console.log("Driver has an active accepted trip, redirecting");
-
-            // Restore trip data
-            globalState.pickupCoordinates = activeRequest.pickup.coordinates;
-            globalState.destinationCoordinates =
-              activeRequest.destination.coordinates;
-
-            tripManager.startTrip({
-              driverId: activeRequest.driverId,
-              driverName: "Driver",
-              origin: activeRequest.pickup.name,
-              destination: activeRequest.destination.name,
-              fare: activeRequest.fare,
-              duration: 120,
-            });
-
-            router.replace("/(tabs)/taxi-service/trip");
+          if (!activeRequest) {
+            console.log(
+              "Security: No active request found for customer, resetting global trip data"
+            );
+            tripManager.startOrderFlow();
+          } else {
+            // Set the active trip ID for tracking
+            setActiveTripId(activeRequest.id);
           }
-          // Otherwise, stay on taxi screen to see available requests
-          return;
+        } else if (isDriver) {
+          // For drivers who are assigned to this trip, get the trip ID
+          const driverActiveTrip = await TaxiService.getDriverActiveTrip();
+          if (driverActiveTrip) {
+            setActiveTripId(driverActiveTrip.id);
+          }
         }
-
-        // For regular customers
-        // Проверяем есть ли активная поездка в глобальном хранилище
-        if (globalState.activeTaxiTrip && !globalState.needsNewOrder) {
-          console.log("Found active trip in globalState, redirecting");
-          router.replace("/(tabs)/taxi-service/trip");
-          return;
-        }
-
-        // Также проверяем наличие активных заказов в системе
+      } else {
+        // No active trip, check if there's one in the backend
         const activeRequest = await taxiRequestsManager.getUserActiveRequest(
           userId
         );
         if (activeRequest) {
-          console.log("Found active request in storage, redirecting");
-
-          // Восстанавливаем данные поездки
-          globalState.pickupCoordinates = activeRequest.pickup.coordinates;
-          globalState.destinationCoordinates =
-            activeRequest.destination.coordinates;
-
-          // Запускаем поездку
-          tripManager.startTrip({
-            driverId: activeRequest.driverId || "pending_driver",
-            driverName: activeRequest.driverId
-              ? "Your Driver"
-              : "Seeking Driver...",
-            origin: activeRequest.pickup.name,
-            destination: activeRequest.destination.name,
-            fare: activeRequest.fare,
-            duration: 120, // 2 minutes default
-          });
-
-          router.replace("/(tabs)/taxi-service/trip");
-          return;
+          setActiveTripId(activeRequest.id);
+        } else {
+          setActiveTripId(undefined);
         }
-      } catch (error) {
-        console.error("Error checking for active trip:", error);
       }
-    };
 
-    checkForActiveTrip();
+      // If the user is a driver visiting the taxi screen, they should see the list
+      // of available requests, not redirect to a trip screen unless they've accepted one
+      if (isDriver && !globalState.activeTaxiTrip) {
+        console.log("Driver mode: Showing available requests");
+        setShowDriverControls(true);
+        // Fetch pending requests for the driver to see
+        fetchPendingRequests();
+        return;
+      }
 
-    // Получаем текущее местоположение пользователя
-    getUserLocation();
+      // Continue with normal flow for customer
+      if (globalState.activeTaxiTrip && globalState.tripData.isActive) {
+        console.log(
+          "Active trip detected, redirecting to trip screen",
+          globalState.tripData
+        );
+        router.replace("/(tabs)/taxi-service/trip");
+        return;
+      }
 
-    // Сохраняем ID пользователя в AsyncStorage при каждом входе
-    if (user?.id) {
-      AsyncStorage.setItem("userId", user.id.toString());
-      console.log("Saved userId to AsyncStorage:", user.id);
+      // Если нет активной поездки, но установлен флаг needsNewOrder
+      if (globalState.needsNewOrder) {
+        console.log(
+          "No active trip, showing taxi order screen",
+          globalState.needsNewOrder
+        );
+        // Запустить новый цикл заказа
+        tripManager.startOrderFlow();
+      }
+    } catch (error) {
+      console.error("Error checking for active trip:", error);
     }
-  }, [isDriver, user]);
+  };
 
   // Функция для получения текущего местоположения пользователя
   const getUserLocation = async () => {
@@ -496,11 +612,15 @@ export default function TaxiOrderScreen() {
 
       // Устанавливаем данные о местоположении
       const currentLocation = {
+        id: "",
         name: addressName,
+        fullAddress: "",
         coordinates: {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
         },
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
       };
 
       setPickupAddress(currentLocation);
@@ -533,25 +653,6 @@ export default function TaxiOrderScreen() {
     }
   };
 
-  // Варианты автомобилей для экрана выбора
-  const carOptions = [
-    {
-      type: "Normal",
-      price: 1500,
-      image: require("@/assets/images/car-normal.png"),
-    },
-    {
-      type: "Minivan",
-      price: 2100,
-      image: require("@/assets/images/car-minivan.png"),
-    },
-    {
-      type: "Joint trip",
-      price: 1100,
-      image: require("@/assets/images/car-joint.png"),
-    },
-  ];
-
   // Поиск адресов с использованием Nominatim API
   const searchAddresses = async (query: string) => {
     if (query.length < 3) {
@@ -578,11 +679,15 @@ export default function TaxiOrderScreen() {
 
       // Преобразуем результаты в наш формат
       const addresses: Address[] = data.map((item: any) => ({
+        id: "",
         name: item.display_name.split(",").slice(0, 2).join(", "),
+        fullAddress: "",
         coordinates: {
           latitude: parseFloat(item.lat),
           longitude: parseFloat(item.lon),
         },
+        latitude: parseFloat(item.lat),
+        longitude: parseFloat(item.lon),
       }));
 
       setSearchResults(addresses);
@@ -591,12 +696,20 @@ export default function TaxiOrderScreen() {
       // Используем резервные данные в случае ошибки
       setSearchResults([
         {
+          id: "",
           name: "Достык 91",
+          fullAddress: "",
           coordinates: { latitude: 43.234525, longitude: 76.956627 },
+          latitude: 43.234525,
+          longitude: 76.956627,
         },
         {
+          id: "",
           name: "Манаса 34/1",
+          fullAddress: "",
           coordinates: { latitude: 43.22551, longitude: 76.906395 },
+          latitude: 43.22551,
+          longitude: 76.906395,
         },
       ]);
     } finally {
@@ -612,7 +725,7 @@ export default function TaxiOrderScreen() {
 
     searchTimeoutRef.current = setTimeout(() => {
       searchAddresses(query);
-    }, 300);
+    }, 300) as unknown as NodeJS.Timeout;
   };
 
   // Handle destination input change - with debounce
@@ -626,11 +739,27 @@ export default function TaxiOrderScreen() {
     debouncedSearchAddresses(text);
   };
 
-  // Select destination address from search results
+  // Handle select destination address from search results
   const handleSelectAddress = (address: Address) => {
     setDestinationAddress(address);
     setDestinationInput(address.name);
     setSearchResults([]);
+
+    // Calculate distance between pickup and destination
+    const distance = calculateDistanceBetweenPoints(
+      pickupAddress.coordinates,
+      address.coordinates
+    );
+    setTripDistance(distance);
+    console.log("Calculated distance:", distance, "km");
+
+    // Calculate prices for all car types
+    const prices: { [key: string]: number } = {};
+    CAR_TYPES.forEach((car) => {
+      prices[car.id] = calculatePrice(car.id, distance);
+      console.log(`Price for ${car.id}:`, prices[car.id]);
+    });
+    setCarPrices(prices);
 
     // Update map region to include both pickup and destination
     const midLat =
@@ -667,128 +796,89 @@ export default function TaxiOrderScreen() {
       },
       1000
     );
+
+    // Automatically show car selection after selecting destination
+    setTimeout(() => {
+      setShowCarSelection(true);
+      setCurrentView("cars");
+    }, 1000);
   };
 
-  // Handle initial order - show car selection
-  const handleInitialOrder = () => {
-    if (!destinationAddress) {
-      return;
-    }
-    setShowCarSelection(true);
+  // Render car type button - updated version with dynamic pricing
+  const renderCarTypeButton = (carType: (typeof CAR_TYPES)[0]) => {
+    const isSelected = selectedCarType === carType.id;
+    const price = carPrices[carType.id] || carType.minPrice;
+
+    return (
+      <TouchableOpacity
+        key={carType.id}
+        style={[styles.carCard, isSelected && styles.carCardSelected]}
+        onPress={() => handleSelectCar(carType.id, price)}
+      >
+        {carType.image && (
+          <Image source={carType.image} style={styles.carImage} />
+        )}
+        <Text style={styles.carTypeName}>
+          {t(`taxi.carTypes.${carType.id}.name`) || carType.name}
+        </Text>
+        <Text style={styles.carPrice}>{price} ₸</Text>
+        <Text style={styles.basePricePerKm}>
+          {carType.basePrice} ₸/{"km"}
+        </Text>
+      </TouchableOpacity>
+    );
   };
 
-  // Handle car selection
-  const handleSelectCar = (carType: string, price: number) => {
-    setSelectedCarType(carType);
-    setSelectedFare(price);
-  };
-
-  // Handle final order confirmation
-  const handleOrderTaxi = async () => {
-    if (!destinationAddress) return;
-
-    setIsLoading(true);
-
-    try {
-      // Save coordinates in global state
-      globalState.pickupCoordinates = pickupAddress.coordinates;
-      globalState.destinationCoordinates = destinationAddress.coordinates;
-
-      // Create a taxi request
-      if (user) {
-        const taxiRequest = await taxiRequestsManager.createRequest({
-          customer: {
-            id: user.id || 0,
-            name: user.name || "Customer",
-          },
-          pickup: {
-            name: pickupAddress.name,
-            coordinates: pickupAddress.coordinates,
-          },
-          destination: {
-            name: destinationAddress.name,
-            coordinates: destinationAddress.coordinates,
-          },
-          fare: selectedFare,
-        });
-
-        if (taxiRequest) {
-          // Start a trip locally for the customer to track
-          tripManager.startTrip({
-            driverId: "pending_driver",
-            driverName: "Seeking Driver...",
-            origin: pickupAddress.name,
-            destination: destinationAddress.name,
-            fare: selectedFare,
-            duration: 120,
-          });
-
-          // Go to trip screen
-          router.replace("/(tabs)/taxi-service/trip");
-        }
-      }
-    } catch (error) {
-      console.error("Error creating taxi request:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Go back from car selection to initial screen
-  const handleGoBack = () => {
-    setShowCarSelection(false);
-  };
-
-  // First screen - input location
-  const renderLocationScreen = () => (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
-    >
-      <SafeAreaView style={styles.container}>
-        {/* Map view - reduce height when keyboard is visible */}
-        <View
-          style={[styles.mapContainer, keyboardVisible && { height: "50%" }]}
-        >
+  // Second screen - car selection
+  const renderCarSelectionScreen = () => {
+    return (
+      <View style={{ flex: 1 }}>
+        <View style={{ height: "60%" }}>
           <MapView
-            style={styles.map}
+            style={{ flex: 1 }}
             region={mapRegion}
             onRegionChangeComplete={setMapRegion}
             ref={mapRef}
           >
-            {/* Pickup marker */}
             {pickupAddress && (
               <Marker
-                coordinate={pickupAddress.coordinates}
-                title="Your Location"
-                description={pickupAddress.name}
+                coordinate={{
+                  latitude: pickupAddress.coordinates.latitude,
+                  longitude: pickupAddress.coordinates.longitude,
+                }}
+                title={t("taxi.pickup")}
+                pinColor="#4CAF50"
               >
                 <View style={styles.currentLocationMarker}>
                   <View style={styles.currentLocationDot} />
                 </View>
               </Marker>
             )}
-
-            {/* Destination marker */}
             {destinationAddress && (
               <Marker
-                coordinate={destinationAddress.coordinates}
-                title="Destination"
-                description={destinationAddress.name}
+                coordinate={{
+                  latitude: destinationAddress.coordinates.latitude,
+                  longitude: destinationAddress.coordinates.longitude,
+                }}
+                title={t("taxi.destination")}
+                pinColor="#F44336"
               >
                 <View style={styles.destinationMarker}>
                   <View style={styles.destinationDot} />
                 </View>
               </Marker>
             )}
-
-            {/* Route line between pickup and destination */}
             {pickupAddress && destinationAddress && (
               <Polyline
                 coordinates={[
-                  pickupAddress.coordinates,
-                  destinationAddress.coordinates,
+                  {
+                    latitude: pickupAddress.coordinates.latitude,
+                    longitude: pickupAddress.coordinates.longitude,
+                  },
+                  {
+                    latitude: destinationAddress.coordinates.latitude,
+                    longitude: destinationAddress.coordinates.longitude,
+                  },
                 ]}
                 strokeColor="#4A5D23"
                 strokeWidth={4}
@@ -797,239 +887,54 @@ export default function TaxiOrderScreen() {
           </MapView>
         </View>
 
-        {/* Back button */}
+        {/* Кнопка назад - вне контейнера карты, чтобы была поверх всего */}
         <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.replace("/(tabs)")}
+          style={[
+            styles.backButton,
+            { position: "absolute", top: 50, left: 20, zIndex: 100 },
+          ]}
+          onPress={handleGoBack}
         >
           <Ionicons name="arrow-back" size={24} color="black" />
         </TouchableOpacity>
 
-        {/* Bottom panel - adjust position based on keyboard */}
-        <Animated.View
-          style={[
-            styles.bottomPanel,
-            keyboardVisible && styles.bottomPanelWithKeyboard,
-          ]}
-        >
-          <ScrollView
-            ref={scrollViewRef}
-            contentContainerStyle={styles.bottomPanelContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.dragIndicator} />
-            <Text style={styles.panelTitle}>{t("taxi.taxi")}</Text>
+        <View style={styles.carSelectionPanel}>
+          {tripDistance > 0 && (
+            <View style={styles.distanceInfoContainer}>
+              <Ionicons name="location" size={16} color="#4CAF50" />
+              <Text style={styles.distanceInfoText}>
+                {`${t("taxi.distance")}: ${tripDistance.toFixed(1)} km`}
+              </Text>
+            </View>
+          )}
 
-            {/* Location inputs */}
+          <Text style={styles.sectionHeaderText}>{t("taxi.selectCar")}</Text>
+
+          <View style={styles.carTypesContainer}>
+            {CAR_TYPES.map((carType) => renderCarTypeButton(carType))}
+          </View>
+
+          <View style={styles.orderSummary}>
+            <View style={styles.priceContainer}>
+              <Text style={styles.priceLabel}>{t("taxi.price")}</Text>
+              <Text style={styles.priceValue}>{getSelectedCarPrice()} ₸</Text>
+            </View>
             <TouchableOpacity
-              style={styles.locationInput}
-              onPress={() => {
-                Keyboard.dismiss();
-                getUserLocation();
-              }}
+              style={styles.orderButtonNew}
+              onPress={handleOrderTaxi}
+              disabled={
+                !pickupAddress || !destinationAddress || !selectedCarType
+              }
             >
-              <View style={styles.inputIconContainer}>
-                <Ionicons
-                  name="navigate-circle-outline"
-                  size={24}
-                  color="#666"
-                />
-              </View>
-              <Text style={styles.inputText}>
-                {pickupAddress ? pickupAddress.name : t("taxi.yourLocation")}
+              <Text style={styles.orderButtonText}>
+                {t("taxi.orderButton") || t("taxi.order")}
               </Text>
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.locationInput}
-              activeOpacity={1}
-              onPress={() => {
-                if (destinationInputRef.current) {
-                  destinationInputRef.current.focus();
-                }
-              }}
-            >
-              <View style={styles.inputIconContainer}>
-                <Ionicons name="location-outline" size={24} color="#666" />
-              </View>
-              <TextInput
-                ref={destinationInputRef}
-                style={styles.inputText}
-                placeholder={t("taxi.whereToGo")}
-                placeholderTextColor="#999"
-                value={destinationInput}
-                onChangeText={handleDestinationInputChange}
-                onFocus={() => {
-                  // Scroll to this input when focused
-                  setTimeout(() => {
-                    if (scrollViewRef.current) {
-                      scrollViewRef.current.scrollToEnd({ animated: true });
-                    }
-                  }, 100);
-                }}
-              />
-            </TouchableOpacity>
-
-            {/* Search results with scrollable container */}
-            {searchResults.length > 0 && (
-              <ScrollView
-                style={[
-                  styles.searchResultsContainer,
-                  keyboardVisible && styles.searchResultsContainerExpanded,
-                ]}
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled={true}
-              >
-                {searchResults.map((item, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.searchResultItem}
-                    onPress={() => {
-                      handleSelectAddress(item);
-                      Keyboard.dismiss();
-                    }}
-                  >
-                    <Ionicons name="location-outline" size={18} color="#666" />
-                    <Text style={styles.searchResultText}>{item.name}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-
-            {/* Order button - ensure it's always visible */}
-            <View
-              style={[
-                styles.orderButtonContainer,
-                keyboardVisible && { marginTop: 16 },
-              ]}
-            >
-              <TouchableOpacity
-                style={[
-                  styles.orderButton,
-                  !destinationAddress && styles.orderButtonDisabled,
-                ]}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  handleInitialOrder();
-                }}
-                disabled={!destinationAddress}
-              >
-                <Text style={styles.orderButtonText}>{t("taxi.order")}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Add padding when keyboard is visible to ensure everything is accessible */}
-            {keyboardVisible && (
-              <View style={{ height: keyboardHeight - 64 }} />
-            )}
-          </ScrollView>
-        </Animated.View>
-
-        {/* Loading indicator */}
-        {isLoading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#000" />
           </View>
-        )}
-      </SafeAreaView>
-    </KeyboardAvoidingView>
-  );
-
-  // Second screen - car selection
-  const renderCarSelectionScreen = () => (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
-    >
-      <SafeAreaView style={styles.container}>
-        {/* Map view */}
-        <View style={styles.mapContainer}>
-          <MapView style={styles.map} region={mapRegion} ref={mapRef}>
-            {/* Pickup marker */}
-            {pickupAddress && (
-              <Marker coordinate={pickupAddress.coordinates}>
-                <View style={styles.currentLocationMarker}>
-                  <View style={styles.currentLocationDot} />
-                </View>
-              </Marker>
-            )}
-
-            {/* Destination marker */}
-            {destinationAddress && (
-              <Marker coordinate={destinationAddress.coordinates}>
-                <View style={styles.destinationMarker}>
-                  <View style={styles.destinationDot} />
-                </View>
-              </Marker>
-            )}
-
-            {/* Route line */}
-            {destinationAddress && (
-              <Polyline
-                coordinates={[
-                  pickupAddress.coordinates,
-                  destinationAddress.coordinates,
-                ]}
-                strokeColor="#4A5D23"
-                strokeWidth={4}
-              />
-            )}
-          </MapView>
         </View>
-
-        {/* Back button */}
-        <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
-          <Ionicons name="arrow-back" size={24} color="black" />
-        </TouchableOpacity>
-
-        {/* Car selection panel */}
-        <ScrollView
-          style={styles.bottomPanel}
-          contentContainerStyle={styles.bottomPanelContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.dragIndicator} />
-
-          <Text style={styles.panelTitle}>{t("taxi.selectCar")}</Text>
-
-          {/* Car options */}
-          <View style={styles.carOptionsContainer}>
-            {carOptions.map((car) => (
-              <TouchableOpacity
-                key={car.type}
-                style={[
-                  styles.carOption,
-                  selectedCarType === car.type && styles.carOptionSelected,
-                ]}
-                onPress={() => handleSelectCar(car.type, car.price)}
-              >
-                <Image source={car.image} style={styles.carImage} />
-                <Text style={styles.carTypeText}>{car.type}</Text>
-                <Text style={styles.carPrice}>{car.price} ₸</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Order button */}
-          <TouchableOpacity
-            style={styles.orderButton}
-            onPress={handleOrderTaxi}
-          >
-            <Text style={styles.orderButtonText}>{t("taxi.order")}</Text>
-          </TouchableOpacity>
-        </ScrollView>
-
-        {/* Loading indicator */}
-        {isLoading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#000" />
-          </View>
-        )}
-      </SafeAreaView>
-    </KeyboardAvoidingView>
-  );
+      </View>
+    );
+  };
 
   const handleAcceptRequest = async (requestId: string) => {
     Alert.alert(
@@ -1075,12 +980,11 @@ export default function TaxiOrderScreen() {
 
               console.log("Request to accept:", request);
 
-              // Accept the request
-              const result = await taxiRequestsManager.acceptRequest(
-                requestId,
-                userId,
-                user.name || driver.name || "Driver"
-              );
+              // Accept the request using the TaxiService
+              const result = await TaxiService.acceptTrip(requestId, {
+                id: userId,
+                name: user.name || driver.name || "Driver",
+              });
 
               if (!result) {
                 Alert.alert(
@@ -1223,6 +1127,264 @@ export default function TaxiOrderScreen() {
     };
   }, []);
 
+  // Handle initial order - show car selection
+  const handleInitialOrder = () => {
+    if (!destinationAddress) {
+      return;
+    }
+    setShowCarSelection(true);
+    setCurrentView("cars");
+  };
+
+  // Handle car selection
+  const handleSelectCar = (carType: string, price: number) => {
+    setSelectedCarType(carType);
+    // Use calculated price from carPrices state
+    setSelectedFare(carPrices[carType] || price);
+  };
+
+  // Calculate selected car price with current distance
+  const getSelectedCarPrice = () => {
+    if (!destinationAddress) return 0;
+
+    // Use the calculated price from carPrices state or use base price as fallback
+    const selectedCar = CAR_TYPES.find((car) => car.id === selectedCarType);
+    const price = selectedCar
+      ? carPrices[selectedCar.id] || selectedCar.minPrice
+      : 0;
+    return price;
+  };
+
+  // Handle order taxi
+  const handleOrderTaxi = async () => {
+    if (!destinationAddress) return;
+
+    setIsLoading(true);
+
+    try {
+      // Save coordinates in global state
+      globalState.pickupCoordinates = pickupAddress.coordinates;
+      globalState.destinationCoordinates = destinationAddress.coordinates;
+
+      // Calculate distance between pickup and destination
+      const distance = calculateDistance(
+        pickupAddress.coordinates,
+        destinationAddress.coordinates
+      );
+
+      // Create a taxi request using the API service
+      if (user) {
+        const taxiRequest = await TaxiService.createTrip({
+          customer: {
+            id: user.id || 0,
+            name: user.name || "Customer",
+          },
+          pickup: {
+            name: pickupAddress.name,
+            coordinates: pickupAddress.coordinates,
+          },
+          destination: {
+            name: destinationAddress.name,
+            coordinates: destinationAddress.coordinates,
+          },
+          fare: selectedFare,
+          distance_km: distance,
+        });
+
+        if (taxiRequest) {
+          // Start a trip locally for the customer to track
+          tripManager.startTrip({
+            driverId: "pending_driver",
+            driverName: "Seeking Driver...",
+            origin: pickupAddress.name,
+            destination: destinationAddress.name,
+            fare: selectedFare,
+            duration: 120,
+          });
+
+          // Go to trip screen
+          router.replace("/(tabs)/taxi-service/trip");
+        }
+      }
+    } catch (error) {
+      console.error("Error creating taxi request:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Go back from car selection to initial screen
+  const handleGoBack = () => {
+    setCurrentView("location");
+    setShowCarSelection(false);
+  };
+
+  // Add handler for location updates
+  const handleLocationUpdate = (location: Location.LocationObject) => {
+    // Update the map to center on the user's location if appropriate
+    if (
+      (currentView === "location" || currentView === "cars") &&
+      mapRef.current
+    ) {
+      mapRef.current.animateToRegion({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      });
+    }
+  };
+
+  // Add a function to navigate to driver dashboard
+  const goToDriverDashboard = () => {
+    router.push("/(tabs)/taxi-service/driver");
+  };
+
+  // Добавляем стейт для отслеживания восстановления состояния
+  const [stateRestored, setStateRestored] = useState(false);
+
+  // Функция для проверки состояния поездки при загрузке экрана
+  const checkAndRestoreTrip = async () => {
+    if (!user || !user.id) return;
+
+    console.log("TaxiScreen mounted - initializing with auth token");
+
+    try {
+      // Проверяем наличие активной поездки у текущего пользователя
+      const hasActiveTrip = await checkUserActiveTrip(user.id.toString());
+
+      if (hasActiveTrip) {
+        console.log(`User ${user.id} has an active trip, restoring state...`);
+
+        // Восстанавливаем состояние поездки
+        const restored = await restoreTripState(user.id.toString());
+
+        if (restored) {
+          console.log("Trip state restored, redirecting to trip screen");
+          router.replace("/taxi-service/trip");
+          return;
+        }
+      }
+
+      console.log(
+        "No active trip, showing taxi order screen",
+        !globalState.activeTaxiTrip
+      );
+      setStateRestored(true);
+    } catch (error) {
+      console.error("Error checking for active trip:", error);
+      setStateRestored(true);
+    }
+  };
+
+  // Проверяем состояние поездки при монтировании компонента
+  useEffect(() => {
+    checkAndRestoreTrip();
+  }, [user]);
+
+  // В случае если состояние не восстановлено, показываем загрузку
+  if (!stateRestored && !globalState.tripData.isActive) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color="#4A5D23" />
+        <Text style={{ marginTop: 20 }}>Загрузка...</Text>
+      </View>
+    );
+  }
+
+  // Render the completion view after a trip is completed
+  const renderCompletionView = () => {
+    // Get current trip from TaxiRequest in AsyncStorage or create a placeholder
+    const [currentTrip, setCurrentTrip] = useState<TaxiRequest | null>(null);
+
+    // Load the current trip when the component renders
+    useEffect(() => {
+      const loadTrip = async () => {
+        try {
+          // Try to get active trip from TaxiService
+          const tripData = await TaxiService.getDriverActiveTrip();
+          if (tripData) {
+            setCurrentTrip(tripData);
+          }
+        } catch (error) {
+          console.error("Error loading trip data:", error);
+        }
+      };
+
+      loadTrip();
+    }, []);
+
+    return (
+      <View style={styles.completionContainer}>
+        <View style={styles.completionHeader}>
+          <Text style={styles.completionTitle}>Trip Completed</Text>
+          <Image
+            source={{ uri: "/api/success-icon" }}
+            style={styles.successIcon}
+          />
+        </View>
+
+        <View style={styles.tripSummary}>
+          <Text style={styles.summaryLabel}>From:</Text>
+          <Text style={styles.summaryValue}>
+            {currentTrip?.pickup?.name || "Unknown location"}
+          </Text>
+
+          <Text style={styles.summaryLabel}>To:</Text>
+          <Text style={styles.summaryValue}>
+            {currentTrip?.destination?.name || "Unknown destination"}
+          </Text>
+
+          <Text style={styles.summaryLabel}>Fare:</Text>
+          <Text style={styles.summaryValue}>{currentTrip?.fare || 0} KZT</Text>
+
+          <Text style={styles.summaryLabel}>Driver:</Text>
+          <Text style={styles.summaryValue}>
+            {globalState.tripData.driverName || "Unknown"}
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.archiveButton}
+          onPress={async () => {
+            if (currentTrip?.id) {
+              const success = await TaxiService.sendTripToHistory(
+                currentTrip.id
+              );
+              if (success) {
+                Alert.alert("Success", "Trip has been added to your history");
+              } else {
+                console.log(
+                  "Failed to add trip to history, but continuing anyway"
+                );
+              }
+
+              // Reset the state regardless of the API result
+              if (user?.id) {
+                forceResetTripState(user.id.toString());
+              }
+              setCurrentView("location");
+            }
+          }}
+        >
+          <Text style={styles.archiveButtonText}>Archive Trip</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.doneButton}
+          onPress={() => {
+            if (user?.id) {
+              forceResetTripState(user.id.toString());
+            }
+            setCurrentView("location");
+          }}
+        >
+          <Text style={styles.doneButtonText}>Done</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   // Main component render
   return (
     <SafeAreaView
@@ -1231,6 +1393,13 @@ export default function TaxiOrderScreen() {
         { backgroundColor: "white", paddingTop: 0, paddingBottom: 0 },
       ]}
     >
+      {/* Include the LocationTracker component */}
+      <LocationTracker
+        isActive={locationTrackingEnabled && !!user}
+        tripId={activeTripId}
+        onLocationUpdate={handleLocationUpdate}
+      />
+
       {isDriver && showDriverControls ? (
         <KeyboardAvoidingView
           style={styles.container}
@@ -1244,19 +1413,230 @@ export default function TaxiOrderScreen() {
           {isDriver && (
             <TouchableOpacity
               style={styles.driverModeFloatingButton}
-              onPress={() => {
-                setShowDriverControls(true);
-                fetchPendingRequests();
-              }}
+              onPress={goToDriverDashboard}
             >
               <FontAwesome name="car" size={20} color="white" />
-              <Text style={styles.driverModeButtonText}>Driver Mode</Text>
+              <Text style={styles.driverModeButtonText}>Driver Dashboard</Text>
             </TouchableOpacity>
           )}
 
-          {showCarSelection
-            ? renderCarSelectionScreen()
-            : renderLocationScreen()}
+          {showCarSelection ? (
+            renderCarSelectionScreen()
+          ) : (
+            <KeyboardAvoidingView
+              style={styles.container}
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+            >
+              <SafeAreaView style={styles.container}>
+                {/* Map view - reduce height when keyboard is visible */}
+                <View
+                  style={[
+                    styles.mapContainer,
+                    keyboardVisible && { height: "50%" },
+                  ]}
+                >
+                  <MapView
+                    style={styles.map}
+                    region={mapRegion}
+                    onRegionChangeComplete={setMapRegion}
+                    ref={mapRef}
+                  >
+                    {/* Pickup marker */}
+                    {pickupAddress && (
+                      <Marker
+                        coordinate={pickupAddress.coordinates}
+                        title="Your Location"
+                        description={pickupAddress.name}
+                      >
+                        <View style={styles.currentLocationMarker}>
+                          <View style={styles.currentLocationDot} />
+                        </View>
+                      </Marker>
+                    )}
+
+                    {/* Destination marker */}
+                    {destinationAddress && (
+                      <Marker
+                        coordinate={destinationAddress.coordinates}
+                        title="Destination"
+                        description={destinationAddress.name}
+                      >
+                        <View style={styles.destinationMarker}>
+                          <View style={styles.destinationDot} />
+                        </View>
+                      </Marker>
+                    )}
+
+                    {/* Route line between pickup and destination */}
+                    {pickupAddress && destinationAddress && (
+                      <Polyline
+                        coordinates={[
+                          pickupAddress.coordinates,
+                          destinationAddress.coordinates,
+                        ]}
+                        strokeColor="#4A5D23"
+                        strokeWidth={4}
+                      />
+                    )}
+                  </MapView>
+                </View>
+
+                {/* Back button */}
+                <TouchableOpacity
+                  style={styles.backButton}
+                  onPress={() => router.replace("/(tabs)")}
+                >
+                  <Ionicons name="arrow-back" size={24} color="black" />
+                </TouchableOpacity>
+
+                {/* Bottom panel - adjust position based on keyboard */}
+                <Animated.View
+                  style={[
+                    styles.bottomPanel,
+                    keyboardVisible && styles.bottomPanelWithKeyboard,
+                  ]}
+                >
+                  <ScrollView
+                    ref={scrollViewRef}
+                    contentContainerStyle={styles.bottomPanelContent}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                  >
+                    <View style={styles.dragIndicator} />
+                    <Text style={styles.panelTitle}>{t("taxi.taxi")}</Text>
+
+                    {/* Location inputs */}
+                    <TouchableOpacity
+                      style={styles.locationInput}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        getUserLocation();
+                      }}
+                    >
+                      <View style={styles.inputIconContainer}>
+                        <Ionicons
+                          name="navigate-circle-outline"
+                          size={24}
+                          color="#666"
+                        />
+                      </View>
+                      <Text style={styles.inputText}>
+                        {pickupAddress
+                          ? pickupAddress.name
+                          : t("taxi.yourLocation")}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.locationInput}
+                      activeOpacity={1}
+                      onPress={() => {
+                        if (destinationInputRef.current) {
+                          destinationInputRef.current.focus();
+                        }
+                      }}
+                    >
+                      <View style={styles.inputIconContainer}>
+                        <Ionicons
+                          name="location-outline"
+                          size={24}
+                          color="#666"
+                        />
+                      </View>
+                      <TextInput
+                        ref={destinationInputRef}
+                        style={styles.inputText}
+                        placeholder={t("taxi.whereToGo")}
+                        placeholderTextColor="#999"
+                        value={destinationInput}
+                        onChangeText={handleDestinationInputChange}
+                        onFocus={() => {
+                          // Scroll to this input when focused
+                          setTimeout(() => {
+                            if (scrollViewRef.current) {
+                              scrollViewRef.current.scrollToEnd({
+                                animated: true,
+                              });
+                            }
+                          }, 100);
+                        }}
+                      />
+                    </TouchableOpacity>
+
+                    {/* Search results with scrollable container */}
+                    {searchResults.length > 0 && (
+                      <ScrollView
+                        style={[
+                          styles.searchResultsContainer,
+                          keyboardVisible &&
+                            styles.searchResultsContainerExpanded,
+                        ]}
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled={true}
+                      >
+                        {searchResults.map((item, index) => (
+                          <TouchableOpacity
+                            key={index}
+                            style={styles.searchResultItem}
+                            onPress={() => {
+                              handleSelectAddress(item);
+                              Keyboard.dismiss();
+                            }}
+                          >
+                            <Ionicons
+                              name="location-outline"
+                              size={18}
+                              color="#666"
+                            />
+                            <Text style={styles.searchResultText}>
+                              {item.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    )}
+
+                    {/* Order button - ensure it's always visible */}
+                    <View
+                      style={[
+                        styles.orderButtonContainer,
+                        keyboardVisible && { marginTop: 16 },
+                      ]}
+                    >
+                      <TouchableOpacity
+                        style={[
+                          styles.orderButton,
+                          !destinationAddress && styles.orderButtonDisabled,
+                        ]}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          handleInitialOrder();
+                        }}
+                        disabled={!destinationAddress}
+                      >
+                        <Text style={styles.orderButtonText}>
+                          {t("taxi.order")}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Add padding when keyboard is visible to ensure everything is accessible */}
+                    {keyboardVisible && (
+                      <View style={{ height: keyboardHeight - 64 }} />
+                    )}
+                  </ScrollView>
+                </Animated.View>
+
+                {/* Loading indicator */}
+                {isLoading && (
+                  <View style={styles.loadingOverlay}>
+                    <ActivityIndicator size="large" color="#000" />
+                  </View>
+                )}
+              </SafeAreaView>
+            </KeyboardAvoidingView>
+          )}
         </>
       )}
 
@@ -1447,20 +1827,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E0E0E0",
   },
-  carImage: {
-    width: 70,
-    height: 45,
-    marginBottom: 10,
-    resizeMode: "contain",
-  },
   carTypeText: {
     fontSize: 14,
     fontWeight: "500",
     marginBottom: 4,
-  },
-  carPrice: {
-    fontSize: 16,
-    fontWeight: "bold",
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1557,26 +1927,260 @@ const styles = StyleSheet.create({
   },
   driverModeFloatingButton: {
     position: "absolute",
-    top: 20,
+    top: 90,
     right: 20,
     zIndex: 10,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#4A5D23",
+    backgroundColor: "#333",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 5,
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 6,
   },
   driverModeButtonText: {
-    marginLeft: 5,
-    fontSize: 12,
+    marginLeft: 8,
+    fontSize: 14,
     color: "white",
     fontWeight: "500",
+  },
+  carTypeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  selectedCarTypeButton: {
+    backgroundColor: "#4C6A2E",
+  },
+  carTypeInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  selectedCarTypeName: {
+    color: "#FFFFFF",
+  },
+  carTypeDetails: {
+    fontSize: 14,
+    color: "#888888",
+  },
+  selectedCarTypeDetails: {
+    color: "#FFFFFF",
+    opacity: 0.8,
+  },
+  carTypePrice: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333333",
+  },
+  selectedCarTypePrice: {
+    color: "#FFFFFF",
+  },
+  orderSummary: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 16,
+    marginBottom: 16,
+    width: "100%",
+  },
+  priceContainer: {
+    flex: 1,
+  },
+  priceLabel: {
+    fontSize: 14,
+    color: "#888888",
+    marginBottom: 4,
+  },
+  priceValue: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#333333",
+  },
+  orderButtonNew: {
+    backgroundColor: "#212121",
+    width: 160,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carTypesContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 20,
+    width: "100%",
+  },
+  distanceInfoContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F5F5",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    justifyContent: "center",
+    width: "100%",
+  },
+  distanceInfoText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+    marginLeft: 8,
+  },
+  loadingButton: {
+    opacity: 0.7,
+  },
+  carPriceContainer: {
+    alignItems: "flex-end",
+  },
+  basePricePerKm: {
+    fontSize: 12,
+    color: "#888888",
+    marginTop: 4,
+  },
+  selectedBasePricePerKm: {
+    color: "#FFFFFF",
+    opacity: 0.8,
+  },
+  carSelectionPanel: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "white",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 36,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: -3,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4.65,
+    elevation: 6,
+  },
+  carSelectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 20,
+    color: "#000",
+  },
+  carCardsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 30,
+  },
+  carCard: {
+    width: "30%",
+    backgroundColor: "white",
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 5,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#EEEEEE",
+  },
+  carCardSelected: {
+    backgroundColor: "#F9F9F9",
+    borderColor: "#DDDDDD",
+  },
+  carImage: {
+    width: 70,
+    height: 45,
+    resizeMode: "contain",
+    marginVertical: 15,
+  },
+  carTypeName: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#333",
+    marginBottom: 5,
+  },
+  carPrice: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  sectionHeaderText: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 15,
+    color: "#333",
+  },
+  completionContainer: {
+    flex: 1,
+    backgroundColor: "#fff",
+    padding: 20,
+  },
+  completionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  completionTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    marginRight: 10,
+  },
+  successIcon: {
+    width: 40,
+    height: 40,
+  },
+  tripSummary: {
+    marginBottom: 20,
+  },
+  summaryLabel: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
+    marginBottom: 4,
+  },
+  summaryValue: {
+    fontSize: 14,
+    color: "#666",
+  },
+  archiveButton: {
+    backgroundColor: "#4CAF50",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  archiveButtonText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+  doneButton: {
+    backgroundColor: "#E0E0E0",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  doneButtonText: {
+    color: "#333",
+    fontWeight: "bold",
   },
 });
 

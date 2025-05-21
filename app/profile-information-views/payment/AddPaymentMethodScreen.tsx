@@ -248,7 +248,7 @@ export default function AddPaymentMethodScreen() {
       console.log("Sending card data:", cardData);
 
       const response = await fetch(
-        "http://192.168.0.117:8000/api/credit-cards",
+        "http://192.168.0.104:8000/api/credit-cards",
         {
           method: "POST",
           headers: {

@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import Svg, { Path, Circle } from "react-native-svg";
 import * as ImagePicker from "expo-image-picker";
+import { useTranslation } from "react-i18next";
 
 // Back Button Component
 const BackButton = () => (
@@ -75,6 +76,7 @@ const Dropdown = ({ placeholder, value, onPress }: DropdownProps) => {
 };
 
 export default function SubmitAdPage() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [productName, setProductName] = useState("");
   const [category, setCategory] = useState("");
@@ -82,7 +84,7 @@ export default function SubmitAdPage() {
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [price, setPrice] = useState("");
-  const [condition, setCondition] = useState("New");
+  const [condition, setCondition] = useState(t("marketplace.categoryPage.new"));
   const [mainPhotoUri, setMainPhotoUri] = useState<string | null>(null);
   const [additionalPhotos, setAdditionalPhotos] = useState<
     Array<string | null>
@@ -95,8 +97,8 @@ export default function SubmitAdPage() {
         await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
         Alert.alert(
-          "Permission denied",
-          "Sorry, we need camera roll permissions to upload images."
+          t("marketplace.submitAdPage.permissionDenied"),
+          t("marketplace.submitAdPage.mediaPermissionRequired")
         );
         return false;
       }
@@ -129,7 +131,10 @@ export default function SubmitAdPage() {
       }
     } catch (error) {
       console.error("Error picking image:", error);
-      Alert.alert("Error", "Failed to pick image. Please try again.");
+      Alert.alert(
+        t("marketplace.submitAdPage.errorPickingImage"),
+        t("marketplace.submitAdPage.pickImageError")
+      );
     }
   };
 
@@ -140,128 +145,161 @@ export default function SubmitAdPage() {
 
   // Function to show category picker
   const showCategoryPicker = () => {
-    Alert.alert("Select Category", "Choose a category for your product", [
-      { text: "Food products", onPress: () => setCategory("Food products") },
-      { text: "Handicrafts", onPress: () => setCategory("Handicrafts") },
-      {
-        text: "Clothes and footwear",
-        onPress: () => setCategory("Clothes and footwear"),
-      },
-      { text: "Utensils", onPress: () => setCategory("Utensils") },
-      { text: "Pet Products", onPress: () => setCategory("Pet Products") },
-      {
-        text: "Seeds and seedlings",
-        onPress: () => setCategory("Seeds and seedlings"),
-      },
-      {
-        text: "Household goods",
-        onPress: () => setCategory("Household goods"),
-      },
-      {
-        text: "Health and beauty products",
-        onPress: () => setCategory("Health and beauty products"),
-      },
-      {
-        text: "Houseplants and flowers",
-        onPress: () => setCategory("Houseplants and flowers"),
-      },
-      { text: "Cancel", style: "cancel" },
-    ]);
+    Alert.alert(
+      t("marketplace.submitAdPage.selectCategoryTitle"),
+      t("marketplace.submitAdPage.selectCategoryMessage"),
+      [
+        {
+          text: t("marketplace.categories.foodProducts"),
+          onPress: () => setCategory(t("marketplace.categories.foodProducts")),
+        },
+        {
+          text: t("marketplace.categories.handicrafts"),
+          onPress: () => setCategory(t("marketplace.categories.handicrafts")),
+        },
+        {
+          text: t("marketplace.categories.clothesFootwear"),
+          onPress: () =>
+            setCategory(t("marketplace.categories.clothesFootwear")),
+        },
+        {
+          text: t("marketplace.categories.utensils"),
+          onPress: () => setCategory(t("marketplace.categories.utensils")),
+        },
+        {
+          text: t("marketplace.categories.petProducts"),
+          onPress: () => setCategory(t("marketplace.categories.petProducts")),
+        },
+        {
+          text: t("marketplace.categories.seedsSeedlings"),
+          onPress: () =>
+            setCategory(t("marketplace.categories.seedsSeedlings")),
+        },
+        {
+          text: t("marketplace.categories.householdGoods"),
+          onPress: () =>
+            setCategory(t("marketplace.categories.householdGoods")),
+        },
+        {
+          text: t("marketplace.categories.healthBeauty"),
+          onPress: () => setCategory(t("marketplace.categories.healthBeauty")),
+        },
+        {
+          text: t("marketplace.categories.houseplants"),
+          onPress: () => setCategory(t("marketplace.categories.houseplants")),
+        },
+        { text: t("marketplace.submitAdPage.cancel"), style: "cancel" },
+      ]
+    );
   };
 
   // Function to show condition picker
   const showConditionPicker = () => {
-    Alert.alert("Select Condition", "Choose the condition of your product", [
-      { text: "New", onPress: () => setCondition("New") },
-      { text: "Used", onPress: () => setCondition("Used") },
-      { text: "Damaged", onPress: () => setCondition("Damaged") },
-      { text: "Cancel", style: "cancel" },
-    ]);
+    Alert.alert(
+      t("marketplace.submitAdPage.selectConditionTitle"),
+      t("marketplace.submitAdPage.selectConditionMessage"),
+      [
+        {
+          text: t("marketplace.categoryPage.new"),
+          onPress: () => setCondition(t("marketplace.categoryPage.new")),
+        },
+        {
+          text: t("marketplace.categoryPage.used"),
+          onPress: () => setCondition(t("marketplace.categoryPage.used")),
+        },
+        {
+          text: t("marketplace.categoryPage.damaged"),
+          onPress: () => setCondition(t("marketplace.categoryPage.damaged")),
+        },
+        { text: t("marketplace.submitAdPage.cancel"), style: "cancel" },
+      ]
+    );
   };
 
   // Validate form
   const validateForm = () => {
     if (!productName || productName.length < 10) {
-      Alert.alert("Error", "Product name must be at least 10 characters");
+      Alert.alert(
+        t("marketplace.submitAdPage.formError"),
+        t("marketplace.submitAdPage.productNameTooShort")
+      );
       return false;
     }
     if (!category) {
-      Alert.alert("Error", "Please select a category");
+      Alert.alert(
+        t("marketplace.submitAdPage.formError"),
+        t("marketplace.submitAdPage.categoryRequired")
+      );
       return false;
     }
     if (!description) {
-      Alert.alert("Error", "Please provide a description");
+      Alert.alert(
+        t("marketplace.submitAdPage.formError"),
+        t("marketplace.submitAdPage.descriptionRequired")
+      );
       return false;
     }
     if (!price) {
-      Alert.alert("Error", "Please set a price");
+      Alert.alert(
+        t("marketplace.submitAdPage.formError"),
+        t("marketplace.submitAdPage.priceRequired")
+      );
       return false;
     }
     return true;
   };
 
-  // Function to handle form submission
+  // Handle form submission
   const handleSubmit = async () => {
     if (!validateForm()) return;
 
     try {
-      // Generate a unique ID using timestamp
-      const productId = Date.now().toString();
-
-      // Create the product object
+      // Create a new product object
       const newProduct = {
-        id: productId,
+        id: Date.now().toString(),
         title: productName,
         description,
-        price: `${price} ₸`,
+        price,
         category,
         condition,
         imageUri: mainPhotoUri,
-        additionalImageUris: additionalPhotos.filter(Boolean), // Remove null values
-        contact: {
-          name: contactName,
-          phone: contactPhone,
-        },
-        dateCreated: new Date().toISOString(),
       };
 
       // Get existing products from storage
       const existingProductsJSON = await AsyncStorage.getItem(
         "marketplace_products"
       );
-      let allProducts = [];
+      const existingProducts = existingProductsJSON
+        ? JSON.parse(existingProductsJSON)
+        : [];
 
-      if (existingProductsJSON) {
-        allProducts = JSON.parse(existingProductsJSON);
-      }
-
-      // Add the new product
-      allProducts.push(newProduct);
+      // Add new product to array
+      const updatedProducts = [newProduct, ...existingProducts];
 
       // Save back to storage
       await AsyncStorage.setItem(
         "marketplace_products",
-        JSON.stringify(allProducts)
+        JSON.stringify(updatedProducts)
       );
 
-      Alert.alert("Success", "Your ad has been submitted successfully", [
-        {
-          text: "OK",
-          onPress: () => {
-            // Navigate back to the previous screen first (which would be marketplace)
-            router.back();
-            // Then navigate to the specific category if needed
-            // Or you can use router.replace to replace the current screen
-            router.replace({
-              pathname: "/(tabs)/marketplacer/CategoryPage",
-              params: { category: category },
-            });
+      // Show success message
+      Alert.alert(
+        t("marketplace.submitAdPage.adSubmitted"),
+        t("marketplace.submitAdPage.adSubmittedSuccess"),
+        [
+          {
+            text: "OK",
+            onPress: () =>
+              router.push("/(tabs)/marketplacer/MarketplaceScreen"),
           },
-        },
-      ]);
+        ]
+      );
     } catch (error) {
-      console.error("Error saving product:", error);
-      Alert.alert("Error", "Failed to save your ad. Please try again.");
+      console.error("Error submitting ad:", error);
+      Alert.alert(
+        t("marketplace.submitAdPage.formError"),
+        t("marketplace.submitAdPage.adSubmitFailed")
+      );
     }
   };
 
@@ -274,159 +312,188 @@ export default function SubmitAdPage() {
         <TouchableOpacity style={styles.backButton} onPress={goBack}>
           <BackButton />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Ad Service</Text>
+        <Text style={styles.headerTitle}>
+          {t("marketplace.submitAdPage.title")}
+        </Text>
       </View>
 
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[
-          styles.contentContainer,
-          { paddingBottom: 80 + insets.bottom },
+          styles.formContainer,
+          { paddingBottom: 40 + insets.bottom },
         ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.formTitle}>Create an ad</Text>
-
-        {/* Product Name Field */}
-        <Text style={styles.fieldLabel}>
-          Name of your product*
-          <Text style={styles.requiredNote}>
-            *Please write at least 10 characters
+        {/* Product Name */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>
+            {t("marketplace.submitAdPage.productName")}
           </Text>
-        </Text>
-        <TextInput
-          style={styles.inputField}
-          placeholder="Name of your product"
-          value={productName}
-          onChangeText={setProductName}
-          maxLength={50}
-        />
-        <Text style={styles.charCount}>{productName.length}/50</Text>
+          <TextInput
+            style={styles.textInput}
+            placeholder={t("marketplace.submitAdPage.enterProductName")}
+            value={productName}
+            onChangeText={setProductName}
+          />
+        </View>
 
         {/* Category Dropdown */}
-        <Text style={styles.fieldLabel}>Category</Text>
-        <Dropdown
-          placeholder="Choose category"
-          value={category}
-          onPress={showCategoryPicker}
-        />
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>
+            {t("marketplace.submitAdPage.category")}
+          </Text>
+          <Dropdown
+            placeholder={t("marketplace.submitAdPage.selectCategory")}
+            value={category}
+            onPress={showCategoryPicker}
+          />
+        </View>
+
+        {/* Description */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>
+            {t("marketplace.submitAdPage.description")}
+          </Text>
+          <TextInput
+            style={styles.textAreaInput}
+            placeholder={t("marketplace.submitAdPage.enterDescription")}
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+          />
+        </View>
+
+        {/* Price */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>
+            {t("marketplace.submitAdPage.price")}
+          </Text>
+          <TextInput
+            style={styles.textInput}
+            placeholder={t("marketplace.submitAdPage.enterPrice")}
+            value={price}
+            onChangeText={setPrice}
+            keyboardType="numeric"
+          />
+        </View>
 
         {/* Condition Dropdown */}
-        <Text style={styles.fieldLabel}>Condition</Text>
-        <Dropdown
-          placeholder="Choose condition"
-          value={condition}
-          onPress={showConditionPicker}
-        />
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>
+            {t("marketplace.submitAdPage.condition")}
+          </Text>
+          <Dropdown
+            placeholder={t("marketplace.submitAdPage.selectCondition")}
+            value={condition}
+            onPress={showConditionPicker}
+          />
+        </View>
 
-        {/* Price Field */}
-        <Text style={styles.fieldLabel}>Price (₸)*</Text>
-        <TextInput
-          style={styles.inputField}
-          placeholder="Enter price"
-          value={price}
-          onChangeText={setPrice}
-          keyboardType="numeric"
-        />
+        {/* Contact Information */}
+        <View style={styles.sectionTitle}>
+          <Text style={styles.sectionTitleText}>
+            {t("marketplace.submitAdPage.contactInformation")}
+          </Text>
+        </View>
 
-        {/* Photo Section */}
-        <Text style={styles.fieldLabel}>Photo</Text>
-        <Text style={styles.photoNote}>
-          The very first photo will be on the cover of the ad.
-        </Text>
-        <View style={styles.photoGrid}>
+        {/* Contact Name */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>
+            {t("marketplace.submitAdPage.yourName")}
+          </Text>
+          <TextInput
+            style={styles.textInput}
+            placeholder={t("marketplace.submitAdPage.enterYourName")}
+            value={contactName}
+            onChangeText={setContactName}
+          />
+        </View>
+
+        {/* Contact Phone */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>
+            {t("marketplace.submitAdPage.yourPhone")}
+          </Text>
+          <TextInput
+            style={styles.textInput}
+            placeholder={t("marketplace.submitAdPage.enterYourPhone")}
+            value={contactPhone}
+            onChangeText={setContactPhone}
+            keyboardType="phone-pad"
+          />
+        </View>
+
+        {/* Photos Section */}
+        <View style={styles.sectionTitle}>
+          <Text style={styles.sectionTitleText}>
+            {t("marketplace.submitAdPage.photos")}
+          </Text>
+        </View>
+
+        {/* Main Photo */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>
+            {t("marketplace.submitAdPage.mainPhoto")}
+          </Text>
           <TouchableOpacity
-            style={styles.photoPlaceholder}
+            style={styles.photoUploader}
             onPress={() => pickImage(0)}
           >
             {mainPhotoUri ? (
               <Image
                 source={{ uri: mainPhotoUri }}
-                style={styles.photoPreview}
+                style={styles.uploadedImage}
               />
             ) : (
-              <CameraIcon />
-            )}
-            <Text style={styles.photoText}>Add main photo</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.photoPlaceholder}
-            onPress={() => pickImage(1)}
-          >
-            {additionalPhotos[0] ? (
-              <Image
-                source={{ uri: additionalPhotos[0] }}
-                style={styles.photoPreview}
-              />
-            ) : (
-              <CameraIcon />
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.photoPlaceholder}
-            onPress={() => pickImage(2)}
-          >
-            {additionalPhotos[1] ? (
-              <Image
-                source={{ uri: additionalPhotos[1] }}
-                style={styles.photoPreview}
-              />
-            ) : (
-              <CameraIcon />
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.photoPlaceholder}
-            onPress={() => pickImage(3)}
-          >
-            {additionalPhotos[2] ? (
-              <Image
-                source={{ uri: additionalPhotos[2] }}
-                style={styles.photoPreview}
-              />
-            ) : (
-              <CameraIcon />
+              <>
+                <CameraIcon />
+                <Text style={styles.uploadPhotoText}>
+                  {t("marketplace.submitAdPage.uploadPhoto")}
+                </Text>
+              </>
             )}
           </TouchableOpacity>
         </View>
 
-        {/* Description Field */}
-        <Text style={styles.fieldLabel}>Description *</Text>
-        <TextInput
-          style={[styles.inputField, styles.textArea]}
-          placeholder="Write a definition for your product"
-          value={description}
-          onChangeText={setDescription}
-          multiline
-          maxLength={900}
-        />
-        <Text style={styles.charCount}>{description.length}/900</Text>
-
-        {/* Contact Information */}
-        <Text style={styles.sectionTitle}>Your contact information</Text>
-
-        <Text style={styles.fieldLabel}>Name</Text>
-        <TextInput
-          style={styles.inputField}
-          placeholder="Your name"
-          value={contactName}
-          onChangeText={setContactName}
-        />
-
-        <Text style={styles.fieldLabel}>Mobile number</Text>
-        <TextInput
-          style={styles.inputField}
-          placeholder="+7 (___) ___-__-__"
-          value={contactPhone}
-          onChangeText={setContactPhone}
-          keyboardType="phone-pad"
-        />
+        {/* Additional Photos */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>
+            {t("marketplace.submitAdPage.additionalPhotos")}
+          </Text>
+          <View style={styles.additionalPhotosContainer}>
+            {additionalPhotos.map((photoUri, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.additionalPhotoUploader}
+                onPress={() => pickImage(index + 1)}
+              >
+                {photoUri ? (
+                  <Image
+                    source={{ uri: photoUri }}
+                    style={styles.uploadedImage}
+                  />
+                ) : (
+                  <>
+                    <CameraIcon />
+                    <Text style={styles.uploadPhotoText}>
+                      {t("marketplace.submitAdPage.uploadPhoto")}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
 
         {/* Submit Button */}
         <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-          <Text style={styles.submitButtonText}>Submit ad</Text>
+          <Text style={styles.submitButtonText}>
+            {t("marketplace.submitAdPage.submit")}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -456,31 +523,87 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  contentContainer: {
+  formContainer: {
     padding: 16,
   },
-  formTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
+  formGroup: {
     marginBottom: 20,
-    textAlign: "center",
   },
-  fieldLabel: {
+  label: {
     fontSize: 16,
+    fontWeight: "bold",
     marginBottom: 8,
-    fontWeight: "500",
   },
-  requiredNote: {
-    fontSize: 12,
-    color: "#888",
-    fontWeight: "normal",
-  },
-  inputField: {
+  textInput: {
     backgroundColor: "#F0F0F0",
     borderRadius: 5,
     padding: 12,
-    marginBottom: 5,
     fontSize: 16,
+  },
+  textAreaInput: {
+    backgroundColor: "#F0F0F0",
+    borderRadius: 5,
+    padding: 12,
+    height: 120,
+    fontSize: 16,
+  },
+  sectionTitle: {
+    marginBottom: 20,
+  },
+  sectionTitleText: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  photoUploader: {
+    width: "100%",
+    aspectRatio: 1,
+    backgroundColor: "#F0F0F0",
+    borderRadius: 5,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+    borderStyle: "dashed",
+  },
+  uploadedImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 5,
+  },
+  uploadPhotoText: {
+    position: "absolute",
+    bottom: 5,
+    fontSize: 10,
+    color: "#666",
+  },
+  additionalPhotosContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  additionalPhotoUploader: {
+    width: "48%",
+    aspectRatio: 1,
+    backgroundColor: "#F0F0F0",
+    borderRadius: 5,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+    borderStyle: "dashed",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  submitButton: {
+    backgroundColor: "#4C6A2E",
+    borderRadius: 5,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  submitButtonText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#FFFFFF",
   },
   dropdownField: {
     backgroundColor: "#F0F0F0",
@@ -498,67 +621,5 @@ const styles = StyleSheet.create({
   inputText: {
     fontSize: 16,
     color: "#000",
-  },
-  photoNote: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 10,
-  },
-  photoGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  photoPlaceholder: {
-    width: "48%",
-    aspectRatio: 1,
-    backgroundColor: "#F0F0F0",
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 5,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    borderStyle: "dashed",
-  },
-  photoPreview: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 5,
-  },
-  photoText: {
-    position: "absolute",
-    bottom: 5,
-    fontSize: 10,
-    color: "#666",
-  },
-  textArea: {
-    height: 120,
-    textAlignVertical: "top",
-  },
-  charCount: {
-    fontSize: 12,
-    color: "#888",
-    textAlign: "right",
-    marginBottom: 15,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginTop: 10,
-    marginBottom: 15,
-  },
-  submitButton: {
-    backgroundColor: "#4C6A2E",
-    borderRadius: 5,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 20,
-  },
-  submitButtonText: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#FFFFFF",
   },
 });
