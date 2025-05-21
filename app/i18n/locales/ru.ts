@@ -30,6 +30,8 @@ export default {
   phone: "Телефон",
   orderHistory: "История заказов",
   viewOrderHistory: "Посмотрите историю ваших заказов",
+  taxiHistory: "История такси",
+  viewTaxiHistory: "Просмотр истории ваших поездок на такси",
   referFriends: "Пригласить друзей",
   shareApp: "Поделиться приложением с друзьями",
   notifications: "Уведомления",
@@ -216,50 +218,7 @@ export default {
     anonymousUser: "Анонимный пользователь",
     acceptRequest: "Принять запрос",
     leaveActiveTrip: "Ваша поездка все еще активна. Вы хотите покинуть экран?",
-    carTypes: {
-      economy: {
-        name: "Эконом",
-        description: "Доступные поездки для повседневных нужд",
-      },
-      comfort: {
-        name: "Комфорт",
-        description: "Более комфортные автомобили для приятной поездки",
-      },
-      premium: {
-        name: "Премиум",
-        description: "Автомобили класса люкс для особых случаев",
-      },
-      arrivalTime: "Прибытие через {{time}} мин",
-    },
-    alerts: {
-      error: "Ошибка",
-      carSelectionError:
-        "Не удалось выбрать тип автомобиля. Пожалуйста, попробуйте снова.",
-    },
-    ordering: "Заказ...",
-    confirmOrder: "Подтвердить заказ",
-    orderTaxi: "Заказать такси",
-    cashPayment: "Оплата наличными",
-    paymentMethod: "Способ оплаты",
-    selectCarType: "Выберите тип автомобиля",
-    totalFare: "Итоговая стоимость",
-    driverControls: {
-      title: "Управление водителя",
-      viewRequests: "Просмотр заказов",
-    },
-    currentLocation: "Ваше текущее местоположение",
-    fetchingLocation: "Получение вашего местоположения...",
-    pickupLocation: "Место посадки",
-    destination: "Пункт назначения",
-    enterDestination: "Введите пункт назначения",
-    locationPermission: {
-      denied: "Доступ к геолокации запрещен",
-      message:
-        "Нам нужно ваше местоположение, чтобы найти поездки рядом с вами. Пожалуйста, включите службы геолокации для этого приложения в настройках вашего устройства.",
-      enable: "Включить геолокацию",
-    },
-
-    // Trip screen
+    // Trip screen translations
     trip: {
       driverArrivalTime: "Водитель будет через {{time}} минут.",
       searchingDriver: "Поиск водителя...",
@@ -274,60 +233,6 @@ export default {
       callDriver: "Позвонить водителю",
       chatWithDriver: "Чат с водителем",
       goBack: "Назад",
-    },
-
-    // Cancellation dialog
-    cancelDialog: {
-      endTrip: "Завершить поездку",
-      cancelTrip: "Отменить поездку",
-      selectReason: "Пожалуйста, выберите причину отмены:",
-      endTripConfirm: "Вы уверены, что хотите завершить текущую поездку?",
-      continueTrip: "Продолжить поездку",
-      keepTrip: "Сохранить поездку",
-      reasonChangedPlans: "Изменились планы",
-      reasonWaitingTooLong: "Слишком долгое ожидание",
-      reasonFoundAlternative: "Нашел альтернативный транспорт",
-      reasonPriceTooHigh: "Слишком высокая цена",
-      reasonDriverAsked: "Водитель попросил отменить",
-      reasonOther: "Другая причина",
-      cancellationFeeNote:
-        "*Примечание: Отмена поездки после 2 минут может повлечь комиссию 500 ₸.",
-    },
-
-    // Chat screen
-    chat: {
-      title: "Чат с водителем такси",
-      writeMessage: "Напишите сообщение",
-      delivered: "Доставлено",
-      today: "Сегодня в",
-    },
-
-    // Driver requests screen
-    requests: {
-      title: "Запросы на поездки",
-      online: "Онлайн",
-      offline: "Оффлайн",
-      noRequests: "На данный момент нет запросов на поездки",
-      pullToRefresh: "Потяните, чтобы обновить",
-      accept: "Принять",
-      decline: "Отклонить",
-      acceptRideRequest: "Принять запрос на поездку",
-      acceptConfirmation:
-        "Вы уверены, что хотите принять запрос на поездку от {{client}}?",
-      declineRideRequest: "Отклонить запрос на поездку",
-      declineConfirmation:
-        "Вы уверены, что хотите отклонить этот запрос на поездку?",
-      cancel: "Отмена",
-      goOnline: "Перейти в онлайн",
-      goOffline: "Перейти в оффлайн",
-      goingOfflineTitle: "Переход в оффлайн",
-      goingOfflineMessage:
-        "Вы уверены, что хотите перейти в оффлайн? Вы не будете получать новые запросы на поездки.",
-      seconds: "секунд назад",
-      minute: "минуту назад",
-      minutes: "минут назад",
-      hour: "час назад",
-      hours: "часов назад",
     },
   },
 
@@ -346,64 +251,6 @@ export default {
       householdGoods: "Товары для дома",
       healthBeauty: "Товары для здоровья и красоты",
       houseplants: "Комнатные растения и цветы",
-    },
-    categoryPage: {
-      filter: "Фильтр",
-      category: "Категория",
-      condition: "Состояние",
-      all: "Все",
-      new: "Новое",
-      used: "Б/у",
-      damaged: "Повреждённое",
-      noProducts: "Нет товаров в этой категории",
-      retryLoading: "Повторить загрузку",
-      loadingProducts: "Загрузка товаров...",
-      failedToLoad: "Не удалось загрузить товары",
-    },
-    submitAdPage: {
-      title: "Подать объявление",
-      productName: "Название товара",
-      enterProductName: "Введите название товара (мин. 10 символов)",
-      category: "Категория",
-      selectCategory: "Выберите категорию",
-      description: "Описание",
-      enterDescription: "Введите описание товара",
-      price: "Цена",
-      enterPrice: "Введите цену",
-      condition: "Состояние",
-      selectCondition: "Выберите состояние",
-      contactInformation: "Контактная информация",
-      yourName: "Ваше имя",
-      enterYourName: "Введите ваше имя",
-      yourPhone: "Ваш телефон",
-      enterYourPhone: "Введите ваш номер телефона",
-      photos: "Фотографии",
-      mainPhoto: "Основное фото",
-      additionalPhotos: "Дополнительные фото (необязательно)",
-      uploadPhoto: "Загрузить фото",
-      submit: "Отправить",
-      permissionDenied: "Отказано в разрешении",
-      mediaPermissionRequired:
-        "Нам нужны разрешения на доступ к галерее для загрузки изображений.",
-      errorPickingImage: "Ошибка выбора изображения",
-      pickImageError:
-        "Не удалось выбрать изображение. Пожалуйста, попробуйте снова.",
-      selectCategoryTitle: "Выберите категорию",
-      selectCategoryMessage: "Выберите категорию для вашего товара",
-      selectConditionTitle: "Выберите состояние",
-      selectConditionMessage: "Выберите состояние вашего товара",
-      formError: "Ошибка",
-      productNameTooShort: "Название товара должно быть не менее 10 символов",
-      categoryRequired: "Пожалуйста, выберите категорию",
-      descriptionRequired: "Пожалуйста, добавьте описание",
-      priceRequired: "Пожалуйста, укажите цену",
-      adSubmitted: "Объявление отправлено",
-      adSubmittedSuccess: "Ваше объявление было успешно отправлено!",
-      adSubmitFailed: "Не удалось отправить ваше объявление",
-      cancel: "Отмена",
-    },
-    productItem: {
-      noImage: "Нет изображения",
     },
   },
   products: "Товары",
@@ -534,4 +381,39 @@ export default {
     orderDetails: "Детали заказа",
     orderNumber: "Заказ №{{id}}",
   },
+
+  // Taxi History
+  taxiHistoryScreen: {
+    title: "История поездок",
+    loading: "Загрузка истории поездок...",
+    noTrips: "У вас пока нет истории поездок",
+    noTripsDescription:
+      "У вас пока нет поездок на такси. Закажите такси, чтобы они появились здесь.",
+    orderTaxi: "Заказать такси",
+    completed: "Завершена",
+    pending: "В ожидании",
+    cancelled: "Отменена",
+    details: "Детали поездки",
+  },
+
+  // Profile Section
+  profileSection: {
+    personalInfo: "Личная информация",
+    personalInfoDesc: "Управление вашими личными данными",
+    orderHistory: "История заказов",
+    orderHistoryDesc: "Просмотр истории ваших заказов",
+    taxiHistory: "История поездок",
+    taxiHistoryDesc: "Просмотр истории ваших поездок на такси",
+    referFriends: "Пригласить друзей",
+    referFriendsDesc: "Поделитесь приложением с друзьями",
+    notifications: "Уведомления",
+    notificationsDesc: "Управление вашими уведомлениями",
+    workInDala: "Работа в Дала",
+    workInDalaDesc: "Найти работу",
+  },
+
+  // Order History
+  noOrdersYet: "У вас пока нет заказов",
+  orderHistoryWillAppearHere:
+    "История ваших заказов появится здесь после оформления",
 };

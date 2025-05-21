@@ -30,7 +30,7 @@ interface CategoryManagementProps {
   storeId?: string;
 }
 
-const API_BASE_URL = "http://192.168.0.113:8000/api";
+const API_BASE_URL = "http://192.168.0.104:8000/api";
 
 // Ключи для AsyncStorage с учетом storeId
 const getCategoriesKey = (storeId: string) => `stored_categories_${storeId}`;

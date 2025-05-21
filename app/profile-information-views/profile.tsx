@@ -62,6 +62,23 @@ const HistoryIcon = () => (
   </Svg>
 );
 
+// Иконка такси
+const TaxiIcon = () => (
+  <Svg
+    width={24}
+    height={24}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="#555"
+    strokeWidth={1.5}
+  >
+    <Path d="M18 6v10a2 2 0 01-2 2H8a2 2 0 01-2-2V6" />
+    <Path d="M5 11l1-5h12l1 5" />
+    <Path d="M8 16h.01" />
+    <Path d="M16 16h.01" />
+  </Svg>
+);
+
 // Иконка поделиться
 const ShareIcon = () => (
   <Svg
@@ -228,6 +245,11 @@ export default function ProfileScreen() {
     router.push("/profile-information-views/profile/OrderHistoryScreen");
   };
 
+  // Функция для перехода на экран истории такси
+  const navigateToTaxiHistory = () => {
+    router.push("/profile-information-views/profile/TaxiHistoryScreen");
+  };
+
   const navigateToWorkOnDami = () => {
     router.push("/profile-information-views/WorkInDamuScreen");
   };
@@ -274,42 +296,49 @@ export default function ProfileScreen() {
         </View>
 
         {/* Меню настроек */}
-        <View style={styles.menuContainer}>
+        <ScrollView style={styles.menuContainer}>
           <MenuItem
             icon={<ProfileIcon />}
-            title={t("personalInfo")}
-            subtitle={t("settings")}
+            title={t("profileSection.personalInfo")}
+            subtitle={t("profileSection.personalInfoDesc")}
             onPress={navigateToProfileInformation}
           />
-
+          <View style={styles.divider} />
           <MenuItem
             icon={<HistoryIcon />}
-            title={t("orderHistory")}
-            subtitle={t("viewOrderHistory")}
+            title={t("profileSection.orderHistory")}
+            subtitle={t("profileSection.orderHistoryDesc")}
             onPress={navigateToOrderHistory}
           />
-
+          <View style={styles.divider} />
+          <MenuItem
+            icon={<TaxiIcon />}
+            title={t("profileSection.taxiHistory")}
+            subtitle={t("profileSection.taxiHistoryDesc")}
+            onPress={navigateToTaxiHistory}
+          />
+          <View style={styles.divider} />
           <MenuItem
             icon={<ShareIcon />}
-            title={t("referFriends")}
-            subtitle={t("shareApp")}
+            title={t("profileSection.referFriends")}
+            subtitle={t("profileSection.referFriendsDesc")}
             onPress={() => {}}
           />
-
+          <View style={styles.divider} />
           <MenuItem
             icon={<NotificationIcon />}
-            title={t("notifications")}
-            subtitle={t("manageNotifications")}
+            title={t("profileSection.notifications")}
+            subtitle={t("profileSection.notificationsDesc")}
             onPress={() => {}}
           />
-
+          <View style={styles.divider} />
           <MenuItem
             icon={<WorkIcon />}
-            title={t("workInDala")}
-            subtitle={t("findJob")}
+            title={t("profileSection.workInDala")}
+            subtitle={t("profileSection.workInDalaDesc")}
             onPress={navigateToWorkOnDami}
           />
-        </View>
+        </ScrollView>
       </ScrollView>
     </SafeAreaView>
   );
@@ -392,5 +421,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#999",
     marginTop: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#F0F0F0",
+    marginVertical: 16,
   },
 });

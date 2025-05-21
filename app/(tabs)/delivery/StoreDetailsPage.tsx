@@ -241,7 +241,7 @@ export default function StoreDetailsPage() {
       }
 
       // Send request to create category
-      const response = await fetch(`http://192.168.0.113:8000/api/categories`, {
+      const response = await fetch(`http://192.168.0.104:8000/api/categories`, {
         method: "POST",
         headers: token
           ? {

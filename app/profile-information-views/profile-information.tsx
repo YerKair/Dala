@@ -195,6 +195,31 @@ const EditIcon = () => (
   </Svg>
 );
 
+// Add this new icon component after the other icon components
+const HistoryIcon = () => (
+  <Svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M12 2C6.5 2 2 6.5 2 12C2 17.5 6.5 22 12 22C17.5 22 22 17.5 22 12C22 6.5 17.5 2 12 2ZM12 20C7.58 20 4 16.42 4 12C4 7.58 7.58 4 12 4C16.42 4 20 7.58 20 12C20 16.42 16.42 20 12 20Z"
+      fill="#333333"
+    />
+    <Path d="M12.5 7H11V13L16.2 16.2L17 14.9L12.5 12.2V7Z" fill="#333333" />
+  </Svg>
+);
+
+// Add this new icon component after the HistoryIcon
+const BugIcon = () => (
+  <Svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M20 8h-2.81c-.45-.78-1.07-1.45-1.82-1.96L16.9 4H7.1l1.52 2.04c-.75.51-1.37 1.18-1.82 1.96H4c-1.1 0-2 .9-2 2v2c0 1.1.9 2 2 2h1v4c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2v-4h1c1.1 0 2-.9 2-2v-2c0-1.1-.9-2-2-2zm0 4h-3v6H7v-6H4v-2h3.89c.64-.85 1.48-1.5 2.47-1.86.33-.11.68-.14 1.02-.14.31 0 .63.03.93.13 1.01.35 1.87 1.02 2.52 1.87H20v2z"
+      fill="#C75E56"
+    />
+    <Path
+      d="M9 14a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm6 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"
+      fill="#C75E56"
+    />
+  </Svg>
+);
+
 // Определение типов для props MenuItem
 interface MenuItemProps {
   icon: React.ReactNode;
@@ -315,7 +340,7 @@ export default function ProfileInformationScreen() {
           try {
             // Отправляем запрос на сервер для logout
             const response = await fetch(
-              "http://192.168.0.113:8000/api/logout",
+              "http://192.168.0.104:8000/api/logout",
               {
                 method: "POST",
                 headers: {
@@ -431,6 +456,15 @@ export default function ProfileInformationScreen() {
             }
           />
           <MenuItem
+            icon={<HistoryIcon />}
+            title={t("taxi.history.title") || "Ride History"}
+            onPress={() =>
+              router.push(
+                "/profile-information-views/profile-information/order-history"
+              )
+            }
+          />
+          <MenuItem
             icon={<SettingsIcon />}
             title={t("settings")}
             onPress={() =>
@@ -445,6 +479,15 @@ export default function ProfileInformationScreen() {
             onPress={() =>
               router.push(
                 "/profile-information-views/profile-information/apply-promocode"
+              )
+            }
+          />
+          <MenuItem
+            icon={<BugIcon />}
+            title={t("debug") || "Debug"}
+            onPress={() =>
+              router.push(
+                "/profile-information-views/profile-information/auth-debug"
               )
             }
           />

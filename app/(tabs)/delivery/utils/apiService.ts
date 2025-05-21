@@ -3,7 +3,7 @@ import axios from "axios";
 import { useAuth } from "../../../auth/AuthContext";
 
 // API Base URL - измените на ваш реальный URL бэкенда
-const API_BASE_URL = "http://192.168.0.113:8000/api";
+const API_BASE_URL = "http://192.168.0.104:8000/api";
 
 // Создаем экземпляр axios с базовыми настройками
 const api = axios.create({

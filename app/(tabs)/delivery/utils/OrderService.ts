@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { CartItem } from "./cartService";
 
-const API_BASE_URL = "http://192.168.0.113:8000/api";
+const API_BASE_URL = "http://192.168.0.104:8000/api";
 
 // Types
 export interface Address {

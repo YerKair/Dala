@@ -21,7 +21,23 @@ export default {
   appName: "Delivery and Taxi",
   appSlogan: "Rural Rides, Delivered Right",
 
-  // Profile
+  // Profile Section
+  profileSection: {
+    personalInfo: "Personal Information",
+    personalInfoDesc: "Manage your personal data",
+    orderHistory: "Order History",
+    orderHistoryDesc: "View your order history",
+    taxiHistory: "Taxi History",
+    taxiHistoryDesc: "View your taxi rides history",
+    referFriends: "Refer to Friends",
+    referFriendsDesc: "Share app with your friends",
+    notifications: "Notifications",
+    notificationsDesc: "Manage your notifications",
+    workInDala: "Work in Dala",
+    workInDalaDesc: "Find your job",
+  },
+
+  // Profile (Legacy keys - keeping for backward compatibility)
   personalInfo: "Personal Information",
   settings: "Settings",
   logout: "Log out",
@@ -262,7 +278,6 @@ export default {
     yourLocation: "Your location",
     whereToGo: "Where are we going?",
     order: "Order",
-    orderButton: "Order",
     selectCar: "Select car",
     price: "Price",
     distance: "Distance",
@@ -273,62 +288,7 @@ export default {
     anonymousUser: "Anonymous User",
     acceptRequest: "Accept Request",
     leaveActiveTrip: "Your trip is still active. Do you want to leave anyway?",
-    carTypes: {
-      economy: {
-        name: "Economy",
-        description: "Affordable rides for everyday needs",
-      },
-      comfort: {
-        name: "Comfort",
-        description: "More comfortable vehicles for a pleasant trip",
-      },
-      premium: {
-        name: "Premium",
-        description: "Luxury vehicles for special occasions",
-      },
-      normal: {
-        name: "Normal",
-      },
-      minivan: {
-        name: "Minivan",
-      },
-      joint: {
-        name: "Joint trip",
-      },
-      arrivalTime: "Arrives in {{time}} min",
-    },
-    alerts: {
-      error: "Error",
-      carSelectionError: "Could not select car type. Please try again.",
-    },
-    ordering: "Ordering...",
-    confirmOrder: "Confirm Order",
-    orderTaxi: "Order Taxi",
-    cashPayment: "Cash Payment",
-    paymentMethod: "Payment Method",
-    pickup: "Pickup",
-    km: "km",
-    minutes: "min",
-    distanceInfo: "Route distance: {{distance}} km",
-    totalFare: "Total Fare",
-    selectCarType: "Select Car Type",
-    driverControls: {
-      title: "Driver Controls",
-      viewRequests: "View Ride Requests",
-    },
-    currentLocation: "Your current location",
-    fetchingLocation: "Getting your location...",
-    pickupLocation: "Pickup Location",
-    destination: "Destination",
-    enterDestination: "Enter destination",
-    locationPermission: {
-      denied: "Location Permission Denied",
-      message:
-        "We need your location to find rides near you. Please enable location services for this app in your device settings.",
-      enable: "Enable Location",
-    },
-
-    // Trip screen
+    // Trip screen translations
     trip: {
       driverArrivalTime: "The driver will be there in {{time}} minutes.",
       searchingDriver: "Searching for a driver...",
@@ -343,60 +303,6 @@ export default {
       callDriver: "Call driver",
       chatWithDriver: "Chat with driver",
       goBack: "Go back",
-    },
-
-    // Cancellation dialog
-    cancelDialog: {
-      endTrip: "End Trip",
-      cancelTrip: "Cancel Trip",
-      selectReason: "Please select a reason for cancellation:",
-      endTripConfirm: "Are you sure you want to end your current trip?",
-      continueTrip: "Continue Trip",
-      keepTrip: "Keep Trip",
-      reasonChangedPlans: "Changed my plans",
-      reasonWaitingTooLong: "Waiting too long",
-      reasonFoundAlternative: "Found alternative transport",
-      reasonPriceTooHigh: "Price too high",
-      reasonDriverAsked: "Driver asked to cancel",
-      reasonOther: "Other reason",
-      cancellationFeeNote:
-        "*Note: Cancellation after 2 minutes may incur a 500 ₸ fee.",
-    },
-
-    // Chat screen
-    chat: {
-      title: "Chat with a taxi driver",
-      writeMessage: "Write your message",
-      delivered: "Delivered",
-      today: "Today at",
-    },
-
-    // Driver requests screen
-    requests: {
-      title: "Ride Requests",
-      online: "Online",
-      offline: "Offline",
-      noRequests: "No ride requests at the moment",
-      pullToRefresh: "Pull to refresh",
-      accept: "Accept",
-      decline: "Decline",
-      acceptRideRequest: "Accept Ride Request",
-      acceptConfirmation:
-        "Are you sure you want to accept the ride request from {{client}}?",
-      declineRideRequest: "Decline Ride Request",
-      declineConfirmation:
-        "Are you sure you want to decline this ride request?",
-      cancel: "Cancel",
-      goOnline: "Go Online",
-      goOffline: "Go Offline",
-      goingOfflineTitle: "Going Offline",
-      goingOfflineMessage:
-        "Are you sure you want to go offline? You won't receive new ride requests.",
-      seconds: "seconds ago",
-      minute: "minute ago",
-      minutes: "minutes ago",
-      hour: "hour ago",
-      hours: "hours ago",
     },
   },
 
@@ -415,63 +321,6 @@ export default {
       householdGoods: "Household goods",
       healthBeauty: "Health and beauty products",
       houseplants: "Houseplants and flowers",
-    },
-    categoryPage: {
-      filter: "Filter",
-      category: "Category",
-      condition: "Condition",
-      all: "All",
-      new: "New",
-      used: "Used",
-      damaged: "Damaged",
-      noProducts: "No products in this category",
-      retryLoading: "Retry loading",
-      loadingProducts: "Loading products...",
-      failedToLoad: "Failed to load products",
-    },
-    submitAdPage: {
-      title: "Submit an advertisement",
-      productName: "Product name",
-      enterProductName: "Enter product name (min. 10 characters)",
-      category: "Category",
-      selectCategory: "Select category",
-      description: "Description",
-      enterDescription: "Enter product description",
-      price: "Price",
-      enterPrice: "Enter price",
-      condition: "Condition",
-      selectCondition: "Select condition",
-      contactInformation: "Contact information",
-      yourName: "Your name",
-      enterYourName: "Enter your name",
-      yourPhone: "Your phone",
-      enterYourPhone: "Enter your phone number",
-      photos: "Photos",
-      mainPhoto: "Main photo",
-      additionalPhotos: "Additional photos (optional)",
-      uploadPhoto: "Upload photo",
-      submit: "Submit",
-      permissionDenied: "Permission denied",
-      mediaPermissionRequired:
-        "Sorry, we need camera roll permissions to upload images.",
-      errorPickingImage: "Error picking image",
-      pickImageError: "Failed to pick image. Please try again.",
-      selectCategoryTitle: "Select Category",
-      selectCategoryMessage: "Choose a category for your product",
-      selectConditionTitle: "Select Condition",
-      selectConditionMessage: "Choose the condition of your product",
-      formError: "Error",
-      productNameTooShort: "Product name must be at least 10 characters",
-      categoryRequired: "Please select a category",
-      descriptionRequired: "Please provide a description",
-      priceRequired: "Please set a price",
-      adSubmitted: "Advertisement submitted",
-      adSubmittedSuccess: "Your advertisement has been successfully submitted!",
-      adSubmitFailed: "Failed to submit your advertisement",
-      cancel: "Cancel",
-    },
-    productItem: {
-      noImage: "No Image",
     },
   },
   products: "Products",
@@ -541,4 +390,23 @@ export default {
     addNewAddress: "Add New Address",
     failedToLoad: "Failed to load data. Please try again.",
   },
+
+  // Taxi History
+  taxiHistoryScreen: {
+    title: "Trip History",
+    loading: "Loading trip history...",
+    noTrips: "No trip history yet",
+    noTripsDescription:
+      "You don't have any taxi trips yet. Order a taxi to see them appear here.",
+    orderTaxi: "Order Taxi",
+    completed: "Completed",
+    pending: "Pending",
+    cancelled: "Cancelled",
+    details: "Trip Details",
+  },
+
+  // Order History
+  noOrdersYet: "No Orders Yet",
+  orderHistoryWillAppearHere:
+    "Your order history will appear here once you place orders",
 };

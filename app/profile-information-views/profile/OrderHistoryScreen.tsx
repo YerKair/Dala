@@ -8,10 +8,14 @@ import {
   FlatList,
   Image,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { router } from "expo-router";
 import Svg, { Path } from "react-native-svg";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth } from "../../auth/AuthContext";
+import { useTranslation } from "react-i18next";
+import { OrderHistoryService } from "../../services/OrderHistoryService";
 
 // Иконка назад
 const BackIcon = () => (
@@ -90,6 +94,7 @@ export interface Order {
   status: "completed" | "cancelled" | "active";
   address: string;
   paymentMethod: string;
+  userId?: string;
 }
 
 // Компонент элемента истории заказов
@@ -184,33 +189,92 @@ const OrderHistoryItem = ({
 export default function OrderHistoryScreen() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const { t } = useTranslation();
 
   useEffect(() => {
-    // Загружаем историю заказов при монтировании компонента
+    // Загружаем историю заказов при монтировании компонента и при изменении пользователя
     loadOrders();
-  }, []);
+  }, [user]);
 
   // Загрузка истории заказов
   const loadOrders = async () => {
     setLoading(true);
     try {
-      // Получаем данные из AsyncStorage
-      const storedOrders = await AsyncStorage.getItem("orderHistory");
+      // Если пользователь авторизован, получаем его заказы
+      if (user && user.id) {
+        console.log(
+          `Загрузка заказов для пользователя ID: ${user.id}, имя: ${user.name}`
+        );
 
-      if (storedOrders) {
-        // Если данные есть, используем их
-        setOrders(JSON.parse(storedOrders));
+        const userOrders = await OrderHistoryService.getUserOrders(
+          String(user.id)
+        );
+        console.log(
+          `Найдено ${userOrders.length} заказов для пользователя ID: ${user.id}`
+        );
+        setOrders(userOrders);
       } else {
-        // Если данных нет, устанавливаем пустой массив
+        // Если пользователь не авторизован, показываем пустой список
+        console.log(
+          "Пользователь не аутентифицирован, показываем пустой список"
+        );
         setOrders([]);
       }
     } catch (error) {
-      console.error("Error loading orders:", error);
-      // В случае ошибки тоже устанавливаем пустой массив
+      console.error("Ошибка при загрузке заказов:", error);
       setOrders([]);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Функция для очистки истории заказов текущего пользователя
+  const clearUserOrderHistory = async () => {
+    if (!user || !user.id) return;
+
+    Alert.alert(
+      "Очистить историю",
+      "Вы уверены, что хотите очистить историю ваших заказов?",
+      [
+        {
+          text: "Отмена",
+          style: "cancel",
+        },
+        {
+          text: "Очистить",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setLoading(true);
+              // Получаем все заказы
+              const allOrders = await OrderHistoryService.getAllOrders();
+              // Фильтруем, оставляя только заказы других пользователей
+              const otherUsersOrders = allOrders.filter(
+                (order) =>
+                  !order.userId || String(order.userId) !== String(user.id)
+              );
+
+              // Сохраняем только заказы других пользователей
+              await AsyncStorage.setItem(
+                "orderHistory",
+                JSON.stringify(otherUsersOrders)
+              );
+              console.log(
+                `История заказов очищена для пользователя ID: ${user.id}`
+              );
+
+              // Обновляем список
+              setOrders([]);
+            } catch (error) {
+              console.error("Ошибка при очистке истории заказов:", error);
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   // Обработчик для возврата назад
@@ -239,9 +303,28 @@ export default function OrderHistoryScreen() {
         <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
           <BackIcon />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Order History</Text>
-        <View style={styles.headerRight} />
+        <Text style={styles.headerTitle}>
+          {t("profileSection.orderHistory")}
+        </Text>
+        {user && orders.length > 0 && (
+          <TouchableOpacity
+            style={styles.clearButton}
+            onPress={clearUserOrderHistory}
+          >
+            <Text style={styles.clearButtonText}>Очистить</Text>
+          </TouchableOpacity>
+        )}
+        {!user || orders.length === 0 ? <View style={{ width: 60 }} /> : null}
       </View>
+
+      {/* Информация о текущем пользователе */}
+      {user && (
+        <View style={styles.userInfoContainer}>
+          <Text style={styles.userInfoText}>
+            Пользователь: {user.name} (ID: {user.id})
+          </Text>
+        </View>
+      )}
 
       {loading ? (
         <View style={styles.loadingContainer}>
@@ -256,16 +339,18 @@ export default function OrderHistoryScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.ordersList}
           showsVerticalScrollIndicator={false}
+          onRefresh={loadOrders}
+          refreshing={loading}
         />
       ) : (
         <View style={styles.emptyContainer}>
           <Image
-            source={{ uri: "/api/placeholder/150/150" }}
+            source={require("../../../assets/images/empty-orders.png")}
             style={styles.emptyImage}
           />
-          <Text style={styles.emptyTitle}>No Orders Yet</Text>
+          <Text style={styles.emptyTitle}>{t("noOrdersYet")}</Text>
           <Text style={styles.emptySubtitle}>
-            Your order history will appear here once you place orders
+            {t("orderHistoryWillAppearHere")}
           </Text>
         </View>
       )}
@@ -299,8 +384,23 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
   },
-  headerRight: {
-    width: 40,
+  resetButton: {
+    padding: 8,
+  },
+  resetButtonText: {
+    color: "#F44336",
+    fontWeight: "600",
+  },
+  userInfoContainer: {
+    backgroundColor: "#F5F5F5",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  userInfoText: {
+    fontSize: 12,
+    color: "#666",
   },
   loadingContainer: {
     flex: 1,
@@ -419,5 +519,14 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
     marginHorizontal: 24,
+  },
+  clearButton: {
+    padding: 8,
+    width: 60,
+  },
+  clearButtonText: {
+    color: "#F44336",
+    fontWeight: "600",
+    textAlign: "center",
   },
 });

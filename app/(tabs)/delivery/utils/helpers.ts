@@ -22,7 +22,7 @@ export const getProductImage = async (
     // If no saved image, try to fetch from API
     try {
       const response = await fetch(
-        `http://192.168.0.113:8000/api/products/${productId}`
+        `http://192.168.0.104:8000/api/products/${productId}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -30,7 +30,7 @@ export const getProductImage = async (
           // If the product has an image URL, save it to AsyncStorage and return
           const imageUrl = data.images.startsWith("http")
             ? data.images
-            : `http://192.168.0.113:8000${data.images}`;
+            : `http://192.168.0.104:8000${data.images}`;
 
           await saveProductImage(productId, imageUrl);
           return imageUrl;
@@ -87,7 +87,7 @@ export const getStoreImage = async (
     // If no saved image, try to fetch from API
     try {
       const response = await fetch(
-        `http://192.168.0.113:8000/api/restaurants/${storeId}`
+        `http://192.168.0.104:8000/api/restaurants/${storeId}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -95,7 +95,7 @@ export const getStoreImage = async (
           // If the store has an image URL, save it to AsyncStorage and return
           const imageUrl = data.image_path.startsWith("http")
             ? data.image_path
-            : `http://192.168.0.113:8000${data.image_path}`;
+            : `http://192.168.0.104:8000${data.image_path}`;
 
           await saveStoreImage(storeId, imageUrl);
           return imageUrl;

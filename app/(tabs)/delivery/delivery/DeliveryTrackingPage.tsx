@@ -182,7 +182,7 @@ export default function DeliveryTrackingPage() {
 
   // Состояние для демо-прогресса
   const [demoMode, setDemoMode] = useState(true);
-  const progressInterval = useRef<NodeJS.Timeout | null>(null);
+  const progressInterval = useRef<NodeJS.Timeout | number | null>(null);
 
   // Функция для запуска демо-прогресса доставки
   const startDemoProgress = useCallback(() => {
@@ -194,6 +194,12 @@ export default function DeliveryTrackingPage() {
     const totalDemoTime = 50; // в секундах
     const interval = 1000; // обновление каждую секунду
     const incrementStep = 1 / totalDemoTime;
+
+    // Проверяем, есть ли маршрут
+    if (routePoints.length === 0) {
+      console.warn("No route points available for demo progress");
+      return;
+    }
 
     progressInterval.current = setInterval(() => {
       setDeliveryProgress((prev) => {
@@ -214,7 +220,12 @@ export default function DeliveryTrackingPage() {
 
         // Обновление позиции курьера на маршруте в соответствии с прогрессом
         if (routePoints.length > 0) {
-          const routeIndex = Math.floor(newProgress * (routePoints.length - 1));
+          // Вычисляем индекс точки маршрута на основе текущего прогресса
+          const routeIndex = Math.min(
+            Math.floor(newProgress * routePoints.length),
+            routePoints.length - 1
+          );
+
           if (routePoints[routeIndex]) {
             setDriverLocation(routePoints[routeIndex]);
           }
@@ -342,16 +353,27 @@ export default function DeliveryTrackingPage() {
 
         setLocationPermissionGranted(true);
 
-        // Get initial location
+        // Get initial location with high accuracy
         const initialLocation = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.BestForNavigation,
         });
 
         if (initialLocation) {
           const { latitude, longitude, accuracy } = initialLocation.coords;
-          setUserLocation({ latitude, longitude });
+          const newUserLocation = { latitude, longitude };
+          setUserLocation(newUserLocation);
           setLocationAccuracy(accuracy);
           setLocationUpdateTimestamp(initialLocation.timestamp);
+
+          // Если не были указаны конкретные координаты в параметрах,
+          // обновляем точку назначения с реальным местоположением
+          if (!toLat || !toLng) {
+            setToCoords(newUserLocation);
+            // Перерасчет маршрута с новыми координатами
+            if (fromCoords.latitude !== 0 && fromCoords.longitude !== 0) {
+              calculateRoute(fromCoords, newUserLocation);
+            }
+          }
 
           // Center map on user initially if we have a position
           if (mapRef.current) {
@@ -367,18 +389,25 @@ export default function DeliveryTrackingPage() {
           }
         }
 
-        // Subscribe to location updates
+        // Subscribe to location updates with higher accuracy and frequency
         locationSubscription = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.BestForNavigation,
-            distanceInterval: 10, // Update every 10 meters
-            timeInterval: 5000, // Or at least every 5 seconds
+            distanceInterval: 5, // Update every 5 meters
+            timeInterval: 3000, // Or at least every 3 seconds
           },
           (location) => {
             const { latitude, longitude, accuracy } = location.coords;
-            setUserLocation({ latitude, longitude });
+            const newLocation = { latitude, longitude };
+            setUserLocation(newLocation);
             setLocationAccuracy(accuracy);
             setLocationUpdateTimestamp(location.timestamp);
+
+            // Если не были указаны конкретные координаты в параметрах,
+            // обновляем точку назначения с новым местоположением
+            if (!toLat || !toLng) {
+              setToCoords(newLocation);
+            }
           }
         );
       } catch (error) {
@@ -456,8 +485,13 @@ export default function DeliveryTrackingPage() {
         if (locationPermissionGranted && userLocation) {
           initialLocation = userLocation;
 
-          // Если есть реальное местоположение, используем его как конечную точку доставки
-          setToCoords(userLocation);
+          // Используем реальное местоположение пользователя как конечную точку доставки
+          // только если не были указаны конкретные координаты в параметрах
+          // или если явно указан параметр useRealLocation
+          const useRealLocationParam = params.useRealLocation === "true";
+          if (!toLat || !toLng || useRealLocationParam) {
+            setToCoords(userLocation);
+          }
         }
 
         // Set initial region based on user location if available, otherwise use restaurant and destination midpoint
@@ -481,8 +515,14 @@ export default function DeliveryTrackingPage() {
         setDriverLocation(fromCoords);
 
         // Рассчитываем маршрут между рестораном и пунктом назначения
-        // (либо реальное местоположение пользователя, либо координаты из параметров)
-        const destinationCoords = userLocation || toCoords;
+        // Используем координаты из параметров, если они есть, иначе используем реальное местоположение пользователя
+        const useRealLocationParam = params.useRealLocation === "true";
+        const destinationCoords = useRealLocationParam
+          ? userLocation || toCoords
+          : toLat && toLng
+          ? toCoords
+          : userLocation || toCoords;
+
         await calculateRoute(fromCoords, destinationCoords);
 
         const estimatedTime = calculateEstimatedDeliveryTime(
@@ -869,6 +909,7 @@ export default function DeliveryTrackingPage() {
   // Функция рассчета маршрута от ресторана к адресу пользователя
   const calculateRoute = async (start: RoutePoint, end: RoutePoint) => {
     if (!start || !end) return;
+    if (start.latitude === 0 || end.latitude === 0) return;
 
     try {
       setRouteLoading(true);
@@ -892,7 +933,7 @@ export default function DeliveryTrackingPage() {
       const enhancedPoints = points.map((point, index) => {
         if (index > 0 && index < points.length - 1) {
           // Добавляем небольшое случайное отклонение
-          const offset = 0.0015 * (Math.random() - 0.5);
+          const offset = 0.002 * (Math.random() - 0.5);
           return {
             latitude: point.latitude + offset,
             longitude: point.longitude + offset,
@@ -924,6 +965,9 @@ export default function DeliveryTrackingPage() {
       const minutes = now.getMinutes();
       setDeliveryEta(`${hours}:${minutes < 10 ? "0" + minutes : minutes}`);
 
+      // Обновляем регион карты для отображения всего маршрута
+      updateMapRegionToFitRoute(start, end);
+
       return enhancedPoints;
     } catch (error) {
       console.error("Ошибка при расчете маршрута:", error);
@@ -932,6 +976,32 @@ export default function DeliveryTrackingPage() {
     } finally {
       setRouteLoading(false);
     }
+  };
+
+  // Функция для обновления региона карты, чтобы показать весь маршрут
+  const updateMapRegionToFitRoute = (start: RoutePoint, end: RoutePoint) => {
+    if (!start || !end || !mapRef.current) return;
+
+    // Рассчитываем средние координаты
+    const midLat = (start.latitude + end.latitude) / 2;
+    const midLng = (start.longitude + end.longitude) / 2;
+
+    // Рассчитываем дельту для охвата обеих точек с отступом
+    const latDelta = Math.abs(start.latitude - end.latitude) * 1.5;
+    const lngDelta = Math.abs(start.longitude - end.longitude) * 1.5;
+
+    // Минимальный zoom для удобства просмотра
+    const minDelta = 0.02;
+
+    mapRef.current.animateToRegion(
+      {
+        latitude: midLat,
+        longitude: midLng,
+        latitudeDelta: Math.max(latDelta, minDelta),
+        longitudeDelta: Math.max(lngDelta, minDelta),
+      },
+      1000
+    );
   };
 
   if (isLoading) {
@@ -982,8 +1052,8 @@ export default function DeliveryTrackingPage() {
             <Marker
               coordinate={userLocation}
               anchor={{ x: 0.5, y: 0.5 }}
-              title="Your Location"
-              description="Your current location"
+              title="Your Current Location"
+              description="Your real-time location"
             >
               <View style={styles.userLocationMarker}>
                 <MaterialIcons
@@ -995,17 +1065,20 @@ export default function DeliveryTrackingPage() {
             </Marker>
           )}
 
-          {/* Delivery destination marker */}
-          <Marker
-            coordinate={toCoords}
-            anchor={{ x: 0.5, y: 0.5 }}
-            title="Delivery Point"
-            description={toAddress as string}
-          >
-            <View style={styles.destinationMarker}>
-              <MaterialIcons name="location-pin" size={22} color="#FF3B30" />
-            </View>
-          </Marker>
+          {/* Delivery destination marker - показываем только если отличается от текущего местоположения пользователя 
+              и если не используем реальное местоположение */}
+          {toLat && toLng && params.useRealLocation !== "true" && (
+            <Marker
+              coordinate={toCoords}
+              anchor={{ x: 0.5, y: 0.5 }}
+              title="Delivery Point"
+              description={toAddress as string}
+            >
+              <View style={styles.destinationMarker}>
+                <MaterialIcons name="location-pin" size={22} color="#FF3B30" />
+              </View>
+            </Marker>
+          )}
 
           {/* Driver marker */}
           <Marker
@@ -1029,10 +1102,16 @@ export default function DeliveryTrackingPage() {
             />
           )}
 
-          {/* Прямая линия от текущего положения курьера до пункта назначения */}
+          {/* Прямая линия от текущего положения курьера до пункта назначения 
+              Если используем реальную геолокацию, то рисуем линию к местоположению пользователя */}
           {deliveryStatus === "onTheWay" && (
             <Polyline
-              coordinates={[driverLocation, toCoords]}
+              coordinates={[
+                driverLocation,
+                params.useRealLocation === "true"
+                  ? userLocation || toCoords
+                  : toCoords,
+              ]}
               strokeColor="#FF9500"
               strokeWidth={3}
               lineDashPattern={[1]}

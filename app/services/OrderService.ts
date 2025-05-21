@@ -2,6 +2,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { API_ENDPOINTS, CartItem } from "./cartService";
+import { Order } from "../profile-information-views/profile/OrderHistoryScreen";
 
 // Generate a UUID v4 (simplified version)
 function generateUUID(): string {
@@ -306,6 +307,197 @@ export class OrderService {
     } catch (error) {
       console.error(`Failed to update order status for ${orderId}:`, error);
       throw error;
+    }
+  }
+
+  // Сохранение нового заказа
+  static async saveOrder(order: Order): Promise<void> {
+    try {
+      // Получаем существующие заказы
+      const existingOrdersString = await AsyncStorage.getItem("orderHistory");
+      let existingOrders: Order[] = [];
+
+      if (existingOrdersString) {
+        existingOrders = JSON.parse(existingOrdersString);
+      }
+
+      // Добавляем новый заказ в начало массива
+      existingOrders.unshift(order);
+
+      // Сохраняем обновленный массив заказов
+      await AsyncStorage.setItem(
+        "orderHistory",
+        JSON.stringify(existingOrders)
+      );
+      console.log("Заказ успешно сохранен", order.id);
+    } catch (error) {
+      console.error("Ошибка при сохранении заказа:", error);
+      throw error;
+    }
+  }
+
+  // Получение всех заказов
+  static async getAllOrders(): Promise<Order[]> {
+    try {
+      const ordersString = await AsyncStorage.getItem("orderHistory");
+      if (ordersString) {
+        return JSON.parse(ordersString);
+      }
+      return [];
+    } catch (error) {
+      console.error("Ошибка при получении заказов:", error);
+      return [];
+    }
+  }
+
+  // Получение заказов пользователя
+  static async getUserOrders(userId: string): Promise<Order[]> {
+    try {
+      const allOrders = await this.getAllOrders();
+      return allOrders.filter(
+        (order) => order.userId === userId || order.userId === undefined
+      );
+    } catch (error) {
+      console.error("Ошибка при получении заказов пользователя:", error);
+      return [];
+    }
+  }
+
+  // Получение заказа по ID
+  static async getOrderById(orderId: string): Promise<Order | null> {
+    try {
+      const allOrders = await this.getAllOrders();
+      const order = allOrders.find((o) => o.id === orderId);
+      return order || null;
+    } catch (error) {
+      console.error("Ошибка при получении заказа по ID:", error);
+      return null;
+    }
+  }
+
+  // Обновление статуса заказа
+  static async updateOrderStatus(
+    orderId: string,
+    newStatus: "completed" | "cancelled" | "active"
+  ): Promise<boolean> {
+    try {
+      const allOrders = await this.getAllOrders();
+      const orderIndex = allOrders.findIndex((o) => o.id === orderId);
+
+      if (orderIndex === -1) {
+        return false;
+      }
+
+      allOrders[orderIndex].status = newStatus;
+      await AsyncStorage.setItem("orderHistory", JSON.stringify(allOrders));
+      return true;
+    } catch (error) {
+      console.error("Ошибка при обновлении статуса заказа:", error);
+      return false;
+    }
+  }
+
+  // Генерация демо-заказов для тестирования
+  static async generateDemoOrders(
+    userId: string,
+    count: number = 5
+  ): Promise<void> {
+    const stores = [
+      "Supermarket Fresh",
+      "Green Grocery",
+      "Farm Foods",
+      "Village Market",
+      "Local Produce",
+      "Healthy Choice",
+      "Family Foods",
+    ];
+
+    const products = [
+      { name: "Milk", price: "3.50" },
+      { name: "Bread", price: "2.00" },
+      { name: "Eggs", price: "4.20" },
+      { name: "Apples", price: "5.00" },
+      { name: "Chicken", price: "9.99" },
+      { name: "Rice", price: "7.50" },
+      { name: "Pasta", price: "2.30" },
+      { name: "Tomatoes", price: "3.80" },
+      { name: "Cheese", price: "6.75" },
+      { name: "Yogurt", price: "3.25" },
+    ];
+
+    const addresses = [
+      "123 Main St, Apt 4B",
+      "456 Oak Ave",
+      "789 Pine Rd",
+      "321 Maple Dr",
+      "654 Elm Ln",
+    ];
+
+    const paymentMethods = ["Cash", "Credit Card", "Online Wallet"];
+
+    try {
+      // Получаем существующие заказы
+      let existingOrders: Order[] = await this.getAllOrders();
+
+      // Создаем новые демо-заказы
+      for (let i = 0; i < count; i++) {
+        const itemsCount = Math.floor(Math.random() * 5) + 1;
+        const items = [];
+        let total = 0;
+
+        for (let j = 0; j < itemsCount; j++) {
+          const product = products[Math.floor(Math.random() * products.length)];
+          const quantity = Math.floor(Math.random() * 3) + 1;
+          const itemPrice = parseFloat(product.price) * quantity;
+          total += itemPrice;
+
+          items.push({
+            name: product.name,
+            quantity: quantity,
+            price: product.price,
+          });
+        }
+
+        // Создаем случайную дату за последний месяц
+        const date = new Date();
+        date.setDate(date.getDate() - Math.floor(Math.random() * 30));
+
+        const statuses: ("completed" | "cancelled" | "active")[] = [
+          "completed",
+          "cancelled",
+          "active",
+        ];
+
+        const newOrder: Order = {
+          id: (existingOrders.length + i + 1).toString(),
+          date: date.toLocaleDateString("ru-RU", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          storeName: stores[Math.floor(Math.random() * stores.length)],
+          items: items,
+          total: total.toFixed(2),
+          status: statuses[Math.floor(Math.random() * statuses.length)],
+          address: addresses[Math.floor(Math.random() * addresses.length)],
+          paymentMethod:
+            paymentMethods[Math.floor(Math.random() * paymentMethods.length)],
+          userId: userId, // Привязываем заказ к пользователю
+        };
+
+        existingOrders.push(newOrder);
+      }
+
+      // Сохраняем все заказы
+      await AsyncStorage.setItem(
+        "orderHistory",
+        JSON.stringify(existingOrders)
+      );
+      console.log(`Создано ${count} демо-заказов для пользователя ${userId}`);
+    } catch (error) {
+      console.error("Ошибка при создании демо-заказов:", error);
     }
   }
 }

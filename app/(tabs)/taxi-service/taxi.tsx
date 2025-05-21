@@ -24,12 +24,15 @@ import {
   Switch,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import {
   globalState,
   tripManager,
   taxiRequestsManager,
   TaxiRequest,
+  restoreTripState,
+  checkUserActiveTrip,
+  forceResetTripState,
 } from "../../store/globalState";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapView, { Marker, Polyline } from "react-native-maps";
@@ -41,6 +44,8 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { FontAwesome } from "@expo/vector-icons";
 import SonarAnimation from "../../../components/SonarAnimation";
 import { useTranslation } from "react-i18next";
+import { TaxiService, setGlobalToken } from "../../services/TaxiService";
+import LocationTracker from "../../components/LocationTracker";
 
 // Enable LayoutAnimation for Android
 if (
@@ -155,7 +160,47 @@ export default function TaxiOrderScreen() {
   const mapRef = useRef<MapView>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const destinationInputRef = useRef<TextInput>(null);
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+
+  // Initialize TaxiService with token immediately when component mounts
+  useEffect(() => {
+    console.log("TaxiScreen mounted - initializing with auth token");
+    // Use the dedicated method to update the taxi token
+    TaxiService.updateTaxiToken().then((success) => {
+      if (success) {
+        console.log("Successfully updated TaxiService token on mount");
+      } else {
+        console.log("Failed to update TaxiService token on mount");
+
+        // If direct method fails, try setting it directly if available
+        if (token) {
+          console.log("Setting token from AuthContext in TaxiService");
+          setGlobalToken(token);
+        }
+      }
+    });
+  }, []); // Empty dependency array so this runs once on mount
+
+  // Listen for token changes
+  useEffect(() => {
+    if (token) {
+      console.log("Token changed - updating in TaxiService");
+      setGlobalToken(token);
+
+      // Also update authToken for consistency
+      AsyncStorage.setItem("authToken", token)
+        .then(() => console.log("Updated authToken in AsyncStorage"))
+        .catch((err) => console.error("Failed to update authToken:", err));
+    } else if (user) {
+      // If we have a user but no token, something might be wrong with auth
+      console.log(
+        "Warning: Have user but no token, updating via TaxiService.updateTaxiToken"
+      );
+      TaxiService.updateTaxiToken();
+    }
+  }, [token, user]); // Listen for changes to token or user
+
+  // Other state declarations
   const [isLoading, setIsLoading] = useState(false);
   const [currentView, setCurrentView] = useState<
     "location" | "cars" | "requests"
@@ -247,16 +292,17 @@ export default function TaxiOrderScreen() {
     setRefreshing(false);
   };
 
-  // Function to fetch pending requests
+  // Fetch pending taxi requests from the server
   const fetchPendingRequests = async () => {
     try {
-      if (!user) return;
-
-      const requests = await taxiRequestsManager.getRequests();
-      console.log("Available requests for drivers:", requests.length);
+      // Use the TaxiService to get pending trips from the API
+      const requests = await TaxiService.getPendingTrips();
       setPendingOrders(requests);
     } catch (error) {
       console.error("Error fetching pending requests:", error);
+      setPendingOrders([]);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -397,129 +443,107 @@ export default function TaxiOrderScreen() {
     getUserLocation();
   }, []);
 
-  // Проверяем, есть ли уже активная поездка и запрашиваем местоположение
-  useEffect(() => {
-    if (!user || !user.id) return;
+  // Add state for trip ID tracking
+  const [activeTripId, setActiveTripId] = useState<string | undefined>(
+    undefined
+  );
+  const [isDriverMode, setIsDriverMode] = useState<boolean>(false);
 
-    console.log("User effect triggered, user ID:", user.id);
+  // Add a state for location tracking toggle
+  const [locationTrackingEnabled, setLocationTrackingEnabled] =
+    useState<boolean>(true);
 
-    // Проверяем, есть ли активная поездка для данного пользователя
-    const checkForActiveTrip = async () => {
-      try {
-        const userId = user.id.toString();
-        // Check if user is a driver
-        const userRoles = user.role ? user.role.split(",") : [];
-        const isDriver = userRoles.includes("driver");
+  // Update the checkForActiveTrip function to set active trip ID
+  const checkForActiveTrip = async () => {
+    try {
+      if (!user || !user.id) {
+        console.log("No user detected, skipping trip check");
+        return;
+      }
 
-        // Security check: Reset any trip data that doesn't belong to current user
-        if (globalState.activeTaxiTrip && globalState.tripData.isActive) {
-          // For drivers, check if they're assigned to this trip
-          if (isDriver && globalState.tripData.driverId !== userId) {
-            console.log(
-              "Security: Driver accessing trip they're not assigned to, resetting"
-            );
-            // Clear the global trip data to prevent data leakage
-            tripManager.startOrderFlow();
-          }
-          // For customers, check if the trip belongs to them (for now just reset, in a real app we'd check against backend)
-          else if (!isDriver) {
-            console.log("Security: Verifying customer trip ownership");
-            const activeRequest =
-              await taxiRequestsManager.getUserActiveRequest(userId);
-            if (!activeRequest) {
-              console.log(
-                "Security: No active request found for customer, resetting global trip data"
-              );
-              tripManager.startOrderFlow();
-            }
-          }
+      const userId = user.id.toString();
+      // Check if user is a driver
+      const userRoles = user?.role ? user.role.split(",") : [];
+      const isDriver = userRoles.includes("driver");
+      setIsDriverMode(isDriver);
+
+      // Security check: Reset any trip data that doesn't belong to current user
+      if (globalState.activeTaxiTrip && globalState.tripData.isActive) {
+        // For drivers, check if they're assigned to this trip
+        if (isDriver && globalState.tripData.driverId !== userId) {
+          console.log(
+            "Security: Driver accessing trip they're not assigned to, resetting"
+          );
+          // Clear the global trip data to prevent data leakage
+          tripManager.startOrderFlow();
         }
-
-        // If the user is a driver visiting the taxi screen, they should see the list
-        // of available requests, not redirect to a trip screen unless they've accepted one
-        if (isDriver && !globalState.activeTaxiTrip) {
-          // For drivers, only redirect if they have an active accepted trip
+        // For customers, check if the trip belongs to them (for now just reset, in a real app we'd check against backend)
+        else if (!isDriver) {
+          console.log("Security: Verifying customer trip ownership");
           const activeRequest = await taxiRequestsManager.getUserActiveRequest(
             userId
           );
-          if (
-            activeRequest &&
-            activeRequest.status === "accepted" &&
-            activeRequest.driverId === userId
-          ) {
-            console.log("Driver has an active accepted trip, redirecting");
-
-            // Restore trip data
-            globalState.pickupCoordinates = activeRequest.pickup.coordinates;
-            globalState.destinationCoordinates =
-              activeRequest.destination.coordinates;
-
-            tripManager.startTrip({
-              driverId: activeRequest.driverId,
-              driverName: "Driver",
-              origin: activeRequest.pickup.name,
-              destination: activeRequest.destination.name,
-              fare: activeRequest.fare,
-              duration: 120,
-            });
-
-            router.replace("/(tabs)/taxi-service/trip");
+          if (!activeRequest) {
+            console.log(
+              "Security: No active request found for customer, resetting global trip data"
+            );
+            tripManager.startOrderFlow();
+          } else {
+            // Set the active trip ID for tracking
+            setActiveTripId(activeRequest.id);
           }
-          // Otherwise, stay on taxi screen to see available requests
-          return;
+        } else if (isDriver) {
+          // For drivers who are assigned to this trip, get the trip ID
+          const driverActiveTrip = await TaxiService.getDriverActiveTrip();
+          if (driverActiveTrip) {
+            setActiveTripId(driverActiveTrip.id);
+          }
         }
-
-        // For regular customers
-        // Проверяем есть ли активная поездка в глобальном хранилище
-        if (globalState.activeTaxiTrip && !globalState.needsNewOrder) {
-          console.log("Found active trip in globalState, redirecting");
-          router.replace("/(tabs)/taxi-service/trip");
-          return;
-        }
-
-        // Также проверяем наличие активных заказов в системе
+      } else {
+        // No active trip, check if there's one in the backend
         const activeRequest = await taxiRequestsManager.getUserActiveRequest(
           userId
         );
         if (activeRequest) {
-          console.log("Found active request in storage, redirecting");
-
-          // Восстанавливаем данные поездки
-          globalState.pickupCoordinates = activeRequest.pickup.coordinates;
-          globalState.destinationCoordinates =
-            activeRequest.destination.coordinates;
-
-          // Запускаем поездку
-          tripManager.startTrip({
-            driverId: activeRequest.driverId || "pending_driver",
-            driverName: activeRequest.driverId
-              ? "Your Driver"
-              : "Seeking Driver...",
-            origin: activeRequest.pickup.name,
-            destination: activeRequest.destination.name,
-            fare: activeRequest.fare,
-            duration: 120, // 2 minutes default
-          });
-
-          router.replace("/(tabs)/taxi-service/trip");
-          return;
+          setActiveTripId(activeRequest.id);
+        } else {
+          setActiveTripId(undefined);
         }
-      } catch (error) {
-        console.error("Error checking for active trip:", error);
       }
-    };
 
-    checkForActiveTrip();
+      // If the user is a driver visiting the taxi screen, they should see the list
+      // of available requests, not redirect to a trip screen unless they've accepted one
+      if (isDriver && !globalState.activeTaxiTrip) {
+        console.log("Driver mode: Showing available requests");
+        setShowDriverControls(true);
+        // Fetch pending requests for the driver to see
+        fetchPendingRequests();
+        return;
+      }
 
-    // Получаем текущее местоположение пользователя
-    getUserLocation();
+      // Continue with normal flow for customer
+      if (globalState.activeTaxiTrip && globalState.tripData.isActive) {
+        console.log(
+          "Active trip detected, redirecting to trip screen",
+          globalState.tripData
+        );
+        router.replace("/(tabs)/taxi-service/trip");
+        return;
+      }
 
-    // Сохраняем ID пользователя в AsyncStorage при каждом входе
-    if (user?.id) {
-      AsyncStorage.setItem("userId", user.id.toString());
-      console.log("Saved userId to AsyncStorage:", user.id);
+      // Если нет активной поездки, но установлен флаг needsNewOrder
+      if (globalState.needsNewOrder) {
+        console.log(
+          "No active trip, showing taxi order screen",
+          globalState.needsNewOrder
+        );
+        // Запустить новый цикл заказа
+        tripManager.startOrderFlow();
+      }
+    } catch (error) {
+      console.error("Error checking for active trip:", error);
     }
-  }, [isDriver, user]);
+  };
 
   // Функция для получения текущего местоположения пользователя
   const getUserLocation = async () => {
@@ -884,9 +908,7 @@ export default function TaxiOrderScreen() {
             </View>
           )}
 
-          <Text style={styles.sectionHeaderText}>
-            {t("taxi.selectCar")}
-          </Text>
+          <Text style={styles.sectionHeaderText}>{t("taxi.selectCar")}</Text>
 
           <View style={styles.carTypesContainer}>
             {CAR_TYPES.map((carType) => renderCarTypeButton(carType))}
@@ -958,12 +980,11 @@ export default function TaxiOrderScreen() {
 
               console.log("Request to accept:", request);
 
-              // Accept the request
-              const result = await taxiRequestsManager.acceptRequest(
-                requestId,
-                userId,
-                user.name || driver.name || "Driver"
-              );
+              // Accept the request using the TaxiService
+              const result = await TaxiService.acceptTrip(requestId, {
+                id: userId,
+                name: user.name || driver.name || "Driver",
+              });
 
               if (!result) {
                 Alert.alert(
@@ -1145,9 +1166,15 @@ export default function TaxiOrderScreen() {
       globalState.pickupCoordinates = pickupAddress.coordinates;
       globalState.destinationCoordinates = destinationAddress.coordinates;
 
-      // Create a taxi request
+      // Calculate distance between pickup and destination
+      const distance = calculateDistance(
+        pickupAddress.coordinates,
+        destinationAddress.coordinates
+      );
+
+      // Create a taxi request using the API service
       if (user) {
-        const taxiRequest = await taxiRequestsManager.createRequest({
+        const taxiRequest = await TaxiService.createTrip({
           customer: {
             id: user.id || 0,
             name: user.name || "Customer",
@@ -1161,6 +1188,7 @@ export default function TaxiOrderScreen() {
             coordinates: destinationAddress.coordinates,
           },
           fare: selectedFare,
+          distance_km: distance,
         });
 
         if (taxiRequest) {
@@ -1191,202 +1219,171 @@ export default function TaxiOrderScreen() {
     setShowCarSelection(false);
   };
 
-  // First screen - input location
-  const renderLocationScreen = () => (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
-    >
-      <SafeAreaView style={styles.container}>
-        {/* Map view - reduce height when keyboard is visible */}
-        <View
-          style={[styles.mapContainer, keyboardVisible && { height: "50%" }]}
-        >
-          <MapView
-            style={styles.map}
-            region={mapRegion}
-            onRegionChangeComplete={setMapRegion}
-            ref={mapRef}
-          >
-            {/* Pickup marker */}
-            {pickupAddress && (
-              <Marker
-                coordinate={pickupAddress.coordinates}
-                title="Your Location"
-                description={pickupAddress.name}
-              >
-                <View style={styles.currentLocationMarker}>
-                  <View style={styles.currentLocationDot} />
-                </View>
-              </Marker>
-            )}
+  // Add handler for location updates
+  const handleLocationUpdate = (location: Location.LocationObject) => {
+    // Update the map to center on the user's location if appropriate
+    if (
+      (currentView === "location" || currentView === "cars") &&
+      mapRef.current
+    ) {
+      mapRef.current.animateToRegion({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      });
+    }
+  };
 
-            {/* Destination marker */}
-            {destinationAddress && (
-              <Marker
-                coordinate={destinationAddress.coordinates}
-                title="Destination"
-                description={destinationAddress.name}
-              >
-                <View style={styles.destinationMarker}>
-                  <View style={styles.destinationDot} />
-                </View>
-              </Marker>
-            )}
+  // Add a function to navigate to driver dashboard
+  const goToDriverDashboard = () => {
+    router.push("/(tabs)/taxi-service/driver");
+  };
 
-            {/* Route line between pickup and destination */}
-            {pickupAddress && destinationAddress && (
-              <Polyline
-                coordinates={[
-                  pickupAddress.coordinates,
-                  destinationAddress.coordinates,
-                ]}
-                strokeColor="#4A5D23"
-                strokeWidth={4}
-              />
-            )}
-          </MapView>
+  // Добавляем стейт для отслеживания восстановления состояния
+  const [stateRestored, setStateRestored] = useState(false);
+
+  // Функция для проверки состояния поездки при загрузке экрана
+  const checkAndRestoreTrip = async () => {
+    if (!user || !user.id) return;
+
+    console.log("TaxiScreen mounted - initializing with auth token");
+
+    try {
+      // Проверяем наличие активной поездки у текущего пользователя
+      const hasActiveTrip = await checkUserActiveTrip(user.id.toString());
+
+      if (hasActiveTrip) {
+        console.log(`User ${user.id} has an active trip, restoring state...`);
+
+        // Восстанавливаем состояние поездки
+        const restored = await restoreTripState(user.id.toString());
+
+        if (restored) {
+          console.log("Trip state restored, redirecting to trip screen");
+          router.replace("/taxi-service/trip");
+          return;
+        }
+      }
+
+      console.log(
+        "No active trip, showing taxi order screen",
+        !globalState.activeTaxiTrip
+      );
+      setStateRestored(true);
+    } catch (error) {
+      console.error("Error checking for active trip:", error);
+      setStateRestored(true);
+    }
+  };
+
+  // Проверяем состояние поездки при монтировании компонента
+  useEffect(() => {
+    checkAndRestoreTrip();
+  }, [user]);
+
+  // В случае если состояние не восстановлено, показываем загрузку
+  if (!stateRestored && !globalState.tripData.isActive) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color="#4A5D23" />
+        <Text style={{ marginTop: 20 }}>Загрузка...</Text>
+      </View>
+    );
+  }
+
+  // Render the completion view after a trip is completed
+  const renderCompletionView = () => {
+    // Get current trip from TaxiRequest in AsyncStorage or create a placeholder
+    const [currentTrip, setCurrentTrip] = useState<TaxiRequest | null>(null);
+
+    // Load the current trip when the component renders
+    useEffect(() => {
+      const loadTrip = async () => {
+        try {
+          // Try to get active trip from TaxiService
+          const tripData = await TaxiService.getDriverActiveTrip();
+          if (tripData) {
+            setCurrentTrip(tripData);
+          }
+        } catch (error) {
+          console.error("Error loading trip data:", error);
+        }
+      };
+
+      loadTrip();
+    }, []);
+
+    return (
+      <View style={styles.completionContainer}>
+        <View style={styles.completionHeader}>
+          <Text style={styles.completionTitle}>Trip Completed</Text>
+          <Image
+            source={{ uri: "/api/success-icon" }}
+            style={styles.successIcon}
+          />
         </View>
 
-        {/* Back button */}
+        <View style={styles.tripSummary}>
+          <Text style={styles.summaryLabel}>From:</Text>
+          <Text style={styles.summaryValue}>
+            {currentTrip?.pickup?.name || "Unknown location"}
+          </Text>
+
+          <Text style={styles.summaryLabel}>To:</Text>
+          <Text style={styles.summaryValue}>
+            {currentTrip?.destination?.name || "Unknown destination"}
+          </Text>
+
+          <Text style={styles.summaryLabel}>Fare:</Text>
+          <Text style={styles.summaryValue}>{currentTrip?.fare || 0} KZT</Text>
+
+          <Text style={styles.summaryLabel}>Driver:</Text>
+          <Text style={styles.summaryValue}>
+            {globalState.tripData.driverName || "Unknown"}
+          </Text>
+        </View>
+
         <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.replace("/(tabs)")}
+          style={styles.archiveButton}
+          onPress={async () => {
+            if (currentTrip?.id) {
+              const success = await TaxiService.sendTripToHistory(
+                currentTrip.id
+              );
+              if (success) {
+                Alert.alert("Success", "Trip has been added to your history");
+              } else {
+                console.log(
+                  "Failed to add trip to history, but continuing anyway"
+                );
+              }
+
+              // Reset the state regardless of the API result
+              if (user?.id) {
+                forceResetTripState(user.id.toString());
+              }
+              setCurrentView("location");
+            }
+          }}
         >
-          <Ionicons name="arrow-back" size={24} color="black" />
+          <Text style={styles.archiveButtonText}>Archive Trip</Text>
         </TouchableOpacity>
 
-        {/* Bottom panel - adjust position based on keyboard */}
-        <Animated.View
-          style={[
-            styles.bottomPanel,
-            keyboardVisible && styles.bottomPanelWithKeyboard,
-          ]}
+        <TouchableOpacity
+          style={styles.doneButton}
+          onPress={() => {
+            if (user?.id) {
+              forceResetTripState(user.id.toString());
+            }
+            setCurrentView("location");
+          }}
         >
-          <ScrollView
-            ref={scrollViewRef}
-            contentContainerStyle={styles.bottomPanelContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.dragIndicator} />
-            <Text style={styles.panelTitle}>{t("taxi.taxi")}</Text>
-
-            {/* Location inputs */}
-            <TouchableOpacity
-              style={styles.locationInput}
-              onPress={() => {
-                Keyboard.dismiss();
-                getUserLocation();
-              }}
-            >
-              <View style={styles.inputIconContainer}>
-                <Ionicons
-                  name="navigate-circle-outline"
-                  size={24}
-                  color="#666"
-                />
-              </View>
-              <Text style={styles.inputText}>
-                {pickupAddress ? pickupAddress.name : t("taxi.yourLocation")}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.locationInput}
-              activeOpacity={1}
-              onPress={() => {
-                if (destinationInputRef.current) {
-                  destinationInputRef.current.focus();
-                }
-              }}
-            >
-              <View style={styles.inputIconContainer}>
-                <Ionicons name="location-outline" size={24} color="#666" />
-              </View>
-              <TextInput
-                ref={destinationInputRef}
-                style={styles.inputText}
-                placeholder={t("taxi.whereToGo")}
-                placeholderTextColor="#999"
-                value={destinationInput}
-                onChangeText={handleDestinationInputChange}
-                onFocus={() => {
-                  // Scroll to this input when focused
-                  setTimeout(() => {
-                    if (scrollViewRef.current) {
-                      scrollViewRef.current.scrollToEnd({ animated: true });
-                    }
-                  }, 100);
-                }}
-              />
-            </TouchableOpacity>
-
-            {/* Search results with scrollable container */}
-            {searchResults.length > 0 && (
-              <ScrollView
-                style={[
-                  styles.searchResultsContainer,
-                  keyboardVisible && styles.searchResultsContainerExpanded,
-                ]}
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled={true}
-              >
-                {searchResults.map((item, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.searchResultItem}
-                    onPress={() => {
-                      handleSelectAddress(item);
-                      Keyboard.dismiss();
-                    }}
-                  >
-                    <Ionicons name="location-outline" size={18} color="#666" />
-                    <Text style={styles.searchResultText}>{item.name}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-
-            {/* Order button - ensure it's always visible */}
-            <View
-              style={[
-                styles.orderButtonContainer,
-                keyboardVisible && { marginTop: 16 },
-              ]}
-            >
-              <TouchableOpacity
-                style={[
-                  styles.orderButton,
-                  !destinationAddress && styles.orderButtonDisabled,
-                ]}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  handleInitialOrder();
-                }}
-                disabled={!destinationAddress}
-              >
-                <Text style={styles.orderButtonText}>{t("taxi.order")}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Add padding when keyboard is visible to ensure everything is accessible */}
-            {keyboardVisible && (
-              <View style={{ height: keyboardHeight - 64 }} />
-            )}
-          </ScrollView>
-        </Animated.View>
-
-        {/* Loading indicator */}
-        {isLoading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#000" />
-          </View>
-        )}
-      </SafeAreaView>
-    </KeyboardAvoidingView>
-  );
+          <Text style={styles.doneButtonText}>Done</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   // Main component render
   return (
@@ -1396,6 +1393,13 @@ export default function TaxiOrderScreen() {
         { backgroundColor: "white", paddingTop: 0, paddingBottom: 0 },
       ]}
     >
+      {/* Include the LocationTracker component */}
+      <LocationTracker
+        isActive={locationTrackingEnabled && !!user}
+        tripId={activeTripId}
+        onLocationUpdate={handleLocationUpdate}
+      />
+
       {isDriver && showDriverControls ? (
         <KeyboardAvoidingView
           style={styles.container}
@@ -1409,19 +1413,230 @@ export default function TaxiOrderScreen() {
           {isDriver && (
             <TouchableOpacity
               style={styles.driverModeFloatingButton}
-              onPress={() => {
-                setShowDriverControls(true);
-                fetchPendingRequests();
-              }}
+              onPress={goToDriverDashboard}
             >
               <FontAwesome name="car" size={20} color="white" />
-              <Text style={styles.driverModeButtonText}>Driver Mode</Text>
+              <Text style={styles.driverModeButtonText}>Driver Dashboard</Text>
             </TouchableOpacity>
           )}
 
-          {showCarSelection
-            ? renderCarSelectionScreen()
-            : renderLocationScreen()}
+          {showCarSelection ? (
+            renderCarSelectionScreen()
+          ) : (
+            <KeyboardAvoidingView
+              style={styles.container}
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+            >
+              <SafeAreaView style={styles.container}>
+                {/* Map view - reduce height when keyboard is visible */}
+                <View
+                  style={[
+                    styles.mapContainer,
+                    keyboardVisible && { height: "50%" },
+                  ]}
+                >
+                  <MapView
+                    style={styles.map}
+                    region={mapRegion}
+                    onRegionChangeComplete={setMapRegion}
+                    ref={mapRef}
+                  >
+                    {/* Pickup marker */}
+                    {pickupAddress && (
+                      <Marker
+                        coordinate={pickupAddress.coordinates}
+                        title="Your Location"
+                        description={pickupAddress.name}
+                      >
+                        <View style={styles.currentLocationMarker}>
+                          <View style={styles.currentLocationDot} />
+                        </View>
+                      </Marker>
+                    )}
+
+                    {/* Destination marker */}
+                    {destinationAddress && (
+                      <Marker
+                        coordinate={destinationAddress.coordinates}
+                        title="Destination"
+                        description={destinationAddress.name}
+                      >
+                        <View style={styles.destinationMarker}>
+                          <View style={styles.destinationDot} />
+                        </View>
+                      </Marker>
+                    )}
+
+                    {/* Route line between pickup and destination */}
+                    {pickupAddress && destinationAddress && (
+                      <Polyline
+                        coordinates={[
+                          pickupAddress.coordinates,
+                          destinationAddress.coordinates,
+                        ]}
+                        strokeColor="#4A5D23"
+                        strokeWidth={4}
+                      />
+                    )}
+                  </MapView>
+                </View>
+
+                {/* Back button */}
+                <TouchableOpacity
+                  style={styles.backButton}
+                  onPress={() => router.replace("/(tabs)")}
+                >
+                  <Ionicons name="arrow-back" size={24} color="black" />
+                </TouchableOpacity>
+
+                {/* Bottom panel - adjust position based on keyboard */}
+                <Animated.View
+                  style={[
+                    styles.bottomPanel,
+                    keyboardVisible && styles.bottomPanelWithKeyboard,
+                  ]}
+                >
+                  <ScrollView
+                    ref={scrollViewRef}
+                    contentContainerStyle={styles.bottomPanelContent}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                  >
+                    <View style={styles.dragIndicator} />
+                    <Text style={styles.panelTitle}>{t("taxi.taxi")}</Text>
+
+                    {/* Location inputs */}
+                    <TouchableOpacity
+                      style={styles.locationInput}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        getUserLocation();
+                      }}
+                    >
+                      <View style={styles.inputIconContainer}>
+                        <Ionicons
+                          name="navigate-circle-outline"
+                          size={24}
+                          color="#666"
+                        />
+                      </View>
+                      <Text style={styles.inputText}>
+                        {pickupAddress
+                          ? pickupAddress.name
+                          : t("taxi.yourLocation")}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.locationInput}
+                      activeOpacity={1}
+                      onPress={() => {
+                        if (destinationInputRef.current) {
+                          destinationInputRef.current.focus();
+                        }
+                      }}
+                    >
+                      <View style={styles.inputIconContainer}>
+                        <Ionicons
+                          name="location-outline"
+                          size={24}
+                          color="#666"
+                        />
+                      </View>
+                      <TextInput
+                        ref={destinationInputRef}
+                        style={styles.inputText}
+                        placeholder={t("taxi.whereToGo")}
+                        placeholderTextColor="#999"
+                        value={destinationInput}
+                        onChangeText={handleDestinationInputChange}
+                        onFocus={() => {
+                          // Scroll to this input when focused
+                          setTimeout(() => {
+                            if (scrollViewRef.current) {
+                              scrollViewRef.current.scrollToEnd({
+                                animated: true,
+                              });
+                            }
+                          }, 100);
+                        }}
+                      />
+                    </TouchableOpacity>
+
+                    {/* Search results with scrollable container */}
+                    {searchResults.length > 0 && (
+                      <ScrollView
+                        style={[
+                          styles.searchResultsContainer,
+                          keyboardVisible &&
+                            styles.searchResultsContainerExpanded,
+                        ]}
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled={true}
+                      >
+                        {searchResults.map((item, index) => (
+                          <TouchableOpacity
+                            key={index}
+                            style={styles.searchResultItem}
+                            onPress={() => {
+                              handleSelectAddress(item);
+                              Keyboard.dismiss();
+                            }}
+                          >
+                            <Ionicons
+                              name="location-outline"
+                              size={18}
+                              color="#666"
+                            />
+                            <Text style={styles.searchResultText}>
+                              {item.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    )}
+
+                    {/* Order button - ensure it's always visible */}
+                    <View
+                      style={[
+                        styles.orderButtonContainer,
+                        keyboardVisible && { marginTop: 16 },
+                      ]}
+                    >
+                      <TouchableOpacity
+                        style={[
+                          styles.orderButton,
+                          !destinationAddress && styles.orderButtonDisabled,
+                        ]}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          handleInitialOrder();
+                        }}
+                        disabled={!destinationAddress}
+                      >
+                        <Text style={styles.orderButtonText}>
+                          {t("taxi.order")}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Add padding when keyboard is visible to ensure everything is accessible */}
+                    {keyboardVisible && (
+                      <View style={{ height: keyboardHeight - 64 }} />
+                    )}
+                  </ScrollView>
+                </Animated.View>
+
+                {/* Loading indicator */}
+                {isLoading && (
+                  <View style={styles.loadingOverlay}>
+                    <ActivityIndicator size="large" color="#000" />
+                  </View>
+                )}
+              </SafeAreaView>
+            </KeyboardAvoidingView>
+          )}
         </>
       )}
 
@@ -1712,24 +1927,24 @@ const styles = StyleSheet.create({
   },
   driverModeFloatingButton: {
     position: "absolute",
-    top: 20,
+    top: 90,
     right: 20,
     zIndex: 10,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#4A5D23",
+    backgroundColor: "#333",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 5,
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 6,
   },
   driverModeButtonText: {
-    marginLeft: 5,
-    fontSize: 12,
+    marginLeft: 8,
+    fontSize: 14,
     color: "white",
     fontWeight: "500",
   },
@@ -1912,6 +2127,60 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 15,
     color: "#333",
+  },
+  completionContainer: {
+    flex: 1,
+    backgroundColor: "#fff",
+    padding: 20,
+  },
+  completionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  completionTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    marginRight: 10,
+  },
+  successIcon: {
+    width: 40,
+    height: 40,
+  },
+  tripSummary: {
+    marginBottom: 20,
+  },
+  summaryLabel: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
+    marginBottom: 4,
+  },
+  summaryValue: {
+    fontSize: 14,
+    color: "#666",
+  },
+  archiveButton: {
+    backgroundColor: "#4CAF50",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  archiveButtonText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+  doneButton: {
+    backgroundColor: "#E0E0E0",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  doneButtonText: {
+    color: "#333",
+    fontWeight: "bold",
   },
 });
 

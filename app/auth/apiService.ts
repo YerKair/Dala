@@ -2,9 +2,9 @@
 import { User } from "../auth/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "http://192.168.0.113:8000/api";
-// Adding 192.168.0.113 API for development
-const LOCAL_API_URL = "http://192.168.0.113:3000/api";
+const API_URL = "http://192.168.0.104:8000/api";
+// Adding 192.168.0.104 API for development
+const LOCAL_API_URL = "http://192.168.0.104:3000/api";
 
 // Response types
 export interface ApiResponse<T> {
