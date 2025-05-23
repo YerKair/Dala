@@ -10,13 +10,23 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.Damu"
+      "bundleIdentifier": "com.anonymous.Damu",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "We need your location to find taxis near you and provide accurate pickup service.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location to track your taxi ride and provide accurate service even when the app is in the background.",
+        "NSLocationAlwaysUsageDescription": "We need your location to track your taxi ride and provide accurate service even when the app is in the background."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -32,6 +42,14 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Damu to use your location to find nearby taxis and track your ride.",
+          "locationAlwaysPermission": "Allow Damu to use your location in the background for ride tracking.",
+          "locationWhenInUsePermission": "Allow Damu to use your location to find nearby taxis."
         }
       ]
     ],

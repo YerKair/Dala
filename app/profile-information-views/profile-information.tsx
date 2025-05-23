@@ -455,15 +455,7 @@ export default function ProfileInformationScreen() {
               )
             }
           />
-          <MenuItem
-            icon={<HistoryIcon />}
-            title={t("taxi.history.title") || "Ride History"}
-            onPress={() =>
-              router.push(
-                "/profile-information-views/profile-information/order-history"
-              )
-            }
-          />
+
           <MenuItem
             icon={<SettingsIcon />}
             title={t("settings")}

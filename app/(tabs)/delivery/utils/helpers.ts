@@ -9,20 +9,28 @@ export const formatCurrency = (amount: number): string => {
 
 // Get product image by ID
 export const getProductImage = async (
-  productId: string
+  productId: string | number | undefined
 ): Promise<string | null> => {
+  if (!productId) {
+    console.log("No product ID provided to getProductImage");
+    return null;
+  }
+
+  const id = productId.toString();
+
   try {
     // First try to get image from AsyncStorage
-    const key = `product_image_${productId}`;
+    const key = `product_image_${id}`;
     const savedImage = await AsyncStorage.getItem(key);
     if (savedImage) {
+      console.log(`[DEBUG] Found cached image for product ${id}`);
       return savedImage;
     }
 
     // If no saved image, try to fetch from API
     try {
       const response = await fetch(
-        `http://192.168.0.104:8000/api/products/${productId}`
+        `http://192.168.0.104:8000/api/products/${id}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -32,7 +40,8 @@ export const getProductImage = async (
             ? data.images
             : `http://192.168.0.104:8000${data.images}`;
 
-          await saveProductImage(productId, imageUrl);
+          await saveProductImage(id, imageUrl);
+          console.log(`[DEBUG] Saved new image for product ${id}`);
           return imageUrl;
         }
       }
@@ -48,9 +57,10 @@ export const getProductImage = async (
     ];
 
     // Determine which placeholder to use based on product ID
-    const index =
-      parseInt(productId.replace(/[^0-9]/g, "")) % placeholders.length;
-    return placeholders[index || 0];
+    const index = parseInt(id.replace(/[^0-9]/g, "")) % placeholders.length;
+    const placeholderUrl = placeholders[index || 0];
+    console.log(`[DEBUG] Using placeholder image for product ${id}`);
+    return placeholderUrl;
   } catch (error) {
     console.error("Error getting product image:", error);
     return null;
@@ -59,12 +69,18 @@ export const getProductImage = async (
 
 // Save product image to AsyncStorage
 export const saveProductImage = async (
-  productId: string,
+  productId: string | number,
   imageUri: string
 ): Promise<boolean> => {
+  if (!productId) {
+    console.error("No product ID provided to saveProductImage");
+    return false;
+  }
+
   try {
-    const key = `product_image_${productId}`;
+    const key = `product_image_${productId.toString()}`;
     await AsyncStorage.setItem(key, imageUri);
+    console.log(`[DEBUG] Successfully saved image for product ${productId}`);
     return true;
   } catch (error) {
     console.error("Error saving product image:", error);
@@ -74,20 +90,28 @@ export const saveProductImage = async (
 
 // Get store image by ID
 export const getStoreImage = async (
-  storeId: string
+  storeId: string | number | undefined
 ): Promise<string | null> => {
+  if (!storeId) {
+    console.log("No store ID provided to getStoreImage");
+    return null;
+  }
+
+  const id = storeId.toString();
+
   try {
     // First try to get image from AsyncStorage
-    const key = `store_image_${storeId}`;
+    const key = `store_image_${id}`;
     const savedImage = await AsyncStorage.getItem(key);
     if (savedImage) {
+      console.log(`[DEBUG] Found cached image for store ${id}`);
       return savedImage;
     }
 
     // If no saved image, try to fetch from API
     try {
       const response = await fetch(
-        `http://192.168.0.104:8000/api/restaurants/${storeId}`
+        `http://192.168.0.104:8000/api/restaurants/${id}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -97,7 +121,8 @@ export const getStoreImage = async (
             ? data.image_path
             : `http://192.168.0.104:8000${data.image_path}`;
 
-          await saveStoreImage(storeId, imageUrl);
+          await saveStoreImage(id, imageUrl);
+          console.log(`[DEBUG] Saved new image for store ${id}`);
           return imageUrl;
         }
       }
@@ -113,9 +138,10 @@ export const getStoreImage = async (
     ];
 
     // Determine which placeholder to use based on store ID
-    const index =
-      parseInt(storeId.replace(/[^0-9]/g, "")) % placeholders.length;
-    return placeholders[index || 0];
+    const index = parseInt(id.replace(/[^0-9]/g, "")) % placeholders.length;
+    const placeholderUrl = placeholders[index || 0];
+    console.log(`[DEBUG] Using placeholder image for store ${id}`);
+    return placeholderUrl;
   } catch (error) {
     console.error("Error getting store image:", error);
     return null;
@@ -124,12 +150,18 @@ export const getStoreImage = async (
 
 // Save store image to AsyncStorage
 export const saveStoreImage = async (
-  storeId: string,
+  storeId: string | number,
   imageUri: string
 ): Promise<boolean> => {
+  if (!storeId) {
+    console.error("No store ID provided to saveStoreImage");
+    return false;
+  }
+
   try {
-    const key = `store_image_${storeId}`;
+    const key = `store_image_${storeId.toString()}`;
     await AsyncStorage.setItem(key, imageUri);
+    console.log(`[DEBUG] Successfully saved image for store ${storeId}`);
     return true;
   } catch (error) {
     console.error("Error saving store image:", error);

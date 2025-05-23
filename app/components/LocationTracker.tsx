@@ -55,7 +55,6 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
           await Location.requestBackgroundPermissionsAsync();
         if (backgroundStatus !== "granted") {
           console.log("Background location permission not granted");
-          // We can continue without background permissions, just won't track in background
         }
       }
 
@@ -80,7 +79,6 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
         permissionStatus === "granted"
           ? true
           : await requestLocationPermissions();
-
       if (!hasPermission) {
         console.log("No permission to track location");
         return;
@@ -93,8 +91,6 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
 
       // Update state with current location
       setLocation(currentLocation);
-
-      // Call the callback if provided
       if (onLocationUpdate) {
         onLocationUpdate(currentLocation);
       }
@@ -106,7 +102,7 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
           : "customer"
         : "customer";
 
-      // Store location in TaxiService and update global state
+      // Update service with current location
       await updateLocationInService(currentLocation, userRole);
 
       // Start watching position
@@ -114,13 +110,9 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
         LOCATION_CONFIG,
         (newLocation) => {
           setLocation(newLocation);
-
-          // Call the callback if provided
           if (onLocationUpdate) {
             onLocationUpdate(newLocation);
           }
-
-          // Update service with new location
           updateLocationInService(newLocation, userRole);
         }
       );
@@ -151,7 +143,6 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
 
       const userId = user.id.toString();
 
-      // Create location object
       const locationToSave = {
         latitude: locationData.coords.latitude,
         longitude: locationData.coords.longitude,
@@ -175,18 +166,9 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
           longitude: locationData.coords.longitude,
         },
         timestamp: locationData.timestamp,
-        speed:
-          locationData.coords.speed === null
-            ? undefined
-            : locationData.coords.speed,
-        heading:
-          locationData.coords.heading === null
-            ? undefined
-            : locationData.coords.heading,
-        accuracy:
-          locationData.coords.accuracy === null
-            ? undefined
-            : locationData.coords.accuracy,
+        speed: locationData.coords.speed || 0,
+        heading: locationData.coords.heading || 0,
+        accuracy: locationData.coords.accuracy || 0,
       };
 
       if (role === "driver") {
@@ -203,14 +185,11 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
         }
       }
 
-      // Save global state to AsyncStorage
       if (globalState.activeTaxiTrip) {
-        // Save current state to AsyncStorage
         try {
           const locationKey = `${role}_current_location`;
           await AsyncStorage.setItem(locationKey, JSON.stringify(locationInfo));
 
-          // Save to trip-specific AsyncStorage if we have a trip ID
           if (tripId) {
             const tripLocationKey = `trip_${tripId}_${role}_location`;
             await AsyncStorage.setItem(
@@ -223,7 +202,7 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
         }
       }
 
-      // Calculate ETA if we have trip ID and we're a driver
+      // Calculate ETA if needed
       if (tripId && role === "driver") {
         try {
           const etaInfo = await TaxiService.calculateETA(tripId);
@@ -247,14 +226,7 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
         nextAppState === "active"
       ) {
         console.log("App has come to the foreground!");
-        // Restart location tracking when app comes to foreground
         startLocationTracking();
-      } else if (
-        appState.current === "active" &&
-        nextAppState.match(/inactive|background/)
-      ) {
-        console.log("App has gone to the background!");
-        // We'll keep tracking in the background if we have permission
       }
 
       appState.current = nextAppState;
@@ -266,7 +238,7 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
     };
   }, []);
 
-  // Start location tracking when component mounts
+  // Start location tracking when component mounts or becomes active
   useEffect(() => {
     if (isActive) {
       startLocationTracking();
@@ -277,12 +249,10 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
     };
   }, [isActive, user, tripId]);
 
-  // If we're tracking but don't need to render anything
   if (!errorMsg) {
     return null;
   }
 
-  // Only render something if there's an error
   return (
     <View style={styles.container}>
       <Text style={styles.errorText}>{errorMsg}</Text>

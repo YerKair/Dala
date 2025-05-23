@@ -358,10 +358,7 @@ const WorkInDamuScreen: React.FC = () => {
       <ScrollView style={styles.scrollView}>
         {/* User profile section */}
         <View style={styles.profileContainer}>
-          <Image
-            source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }}
-            style={styles.profileImage}
-          />
+          <Image source={{}} style={styles.profileImage} />
           <Text style={styles.profileName}>{user ? user.name : "User"}</Text>
           <Text style={styles.profileStatus}>
             {roles.filter((r) => r.active).length > 1

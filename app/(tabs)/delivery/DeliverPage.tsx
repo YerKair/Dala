@@ -56,6 +56,40 @@ interface Category {
   icon: React.ReactNode;
 }
 
+// Add demo data at the top of the file, after imports
+const demoStores: Store[] = [
+  {
+    id: 1,
+    user_id: 1,
+    name: "Fresh Market",
+    description: "Fresh groceries and daily products",
+    address: "123 Main St",
+    category: "Supermarkets",
+    latitude: "43.238949",
+    longitude: "76.889709",
+    image_path: "/images/stores/market.jpg",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    isPopular: true,
+    isRecommended: true,
+  },
+  {
+    id: 2,
+    user_id: 2,
+    name: "Green Grocery",
+    description: "Organic and healthy products",
+    address: "456 Oak St",
+    category: "Supermarkets",
+    latitude: "43.238949",
+    longitude: "76.889709",
+    image_path: "/images/stores/grocery.jpg",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    isPopular: true,
+    isRecommended: false,
+  },
+];
+
 // Category component
 const CategoryItem = ({
   item,
@@ -92,26 +126,30 @@ const StoreCard = ({
 }) => {
   const { t } = useTranslation();
   const [storeImage, setStoreImage] = useState<string | null>(null);
+  const [imageError, setImageError] = useState(false);
 
   useEffect(() => {
     const loadImage = async () => {
       try {
+        if (!store.id) {
+          console.log("[DEBUG] Store has no ID, cannot load image");
+          return;
+        }
+
         // First, try to load from local storage
         const localImage = await AsyncStorage.getItem(
           `store_image_${store.id}`
         );
 
         if (localImage) {
-          console.log(`[DEBUG] Найдено локальное изображение для ${store.id}`);
+          console.log(`[DEBUG] Found local image for store ${store.id}`);
           setStoreImage(localImage);
           return;
         }
 
-        // If not in local storage, try to use server path
+        // If not in local storage and we have an image path, process it
         if (store.image_path) {
-          console.log(
-            `[DEBUG] Используем серверное изображение для ${store.id}`
-          );
+          console.log(`[DEBUG] Processing image path for store ${store.id}`);
 
           // Check if it's a full URL or a relative path
           const imageUrl = store.image_path.startsWith("http")
@@ -121,19 +159,37 @@ const StoreCard = ({
           setStoreImage(imageUrl);
 
           // Save URL to local storage for future use
-          await AsyncStorage.setItem(`store_image_${store.id}`, imageUrl);
-          console.log(`[DEBUG] Сохранено изображение для ${store.id}`);
+          try {
+            await AsyncStorage.setItem(`store_image_${store.id}`, imageUrl);
+            console.log(`[DEBUG] Saved image URL for store ${store.id}`);
+          } catch (saveError) {
+            console.error(
+              `[DEBUG] Failed to save image URL for store ${store.id}:`,
+              saveError
+            );
+          }
+        } else {
+          console.log(`[DEBUG] No image path for store ${store.id}`);
+          setImageError(true);
         }
       } catch (error) {
         console.error(
-          `[DEBUG] Ошибка загрузки изображения для ${store.id}:`,
+          `[DEBUG] Error loading image for store ${store.id}:`,
           error
         );
+        setImageError(true);
       }
     };
 
     loadImage();
   }, [store.id, store.image_path]);
+
+  const handleImageError = () => {
+    console.log(
+      `[DEBUG] Image load failed for store ${store.id}, using placeholder`
+    );
+    setImageError(true);
+  };
 
   return (
     <TouchableOpacity
@@ -142,11 +198,12 @@ const StoreCard = ({
       activeOpacity={0.7}
     >
       <View style={styles.storeImageContainer}>
-        {storeImage ? (
+        {!imageError && storeImage ? (
           <Image
             source={{ uri: storeImage }}
             style={styles.storeImage}
             resizeMode="cover"
+            onError={handleImageError}
           />
         ) : (
           <View style={styles.storeImagePlaceholder}>
@@ -257,31 +314,71 @@ export default function DeliveryPage() {
         setError(null);
 
         let token = await AsyncStorage.getItem("token");
-
         if (!token) {
           token = await AsyncStorage.getItem("userToken");
         }
 
+        console.log(
+          "Attempting to fetch stores from:",
+          "http://192.168.0.104:8000/api/restaurants"
+        );
+
         const response = await fetch(
           "http://192.168.0.104:8000/api/restaurants",
           {
-            headers: token
-              ? {
-                  Accept: "application/json",
-                  Authorization: `Bearer ${token}`,
-                }
-              : {
-                  Accept: "application/json",
-                },
+            headers: {
+              Accept: "application/json",
+              ...(token && { Authorization: `Bearer ${token}` }),
+            },
           }
         );
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        console.log("Response status:", response.status);
+        const responseText = await response.text();
+        console.log("Response body:", responseText);
+
+        if (response.status === 401) {
+          console.log("User is not authorized, using demo data");
+          // Use demo data for unauthorized users
+          const processedDemoData = demoStores.map((store) => ({
+            ...store,
+            isPopular: store.isPopular || Math.random() > 0.7,
+            isRecommended: store.isRecommended || Math.random() > 0.7,
+          }));
+
+          setStores(processedDemoData);
+          setFilteredStores(processedDemoData);
+          setPopularStores(
+            processedDemoData.filter((store) => store.isPopular)
+          );
+          setRecommendedStores(
+            processedDemoData.filter((store) => store.isRecommended)
+          );
+
+          // Store demo data in AsyncStorage
+          await AsyncStorage.setItem(
+            "deliveryStores",
+            JSON.stringify(processedDemoData)
+          );
+          setError("Showing demo data - please log in to see actual stores");
+          return;
         }
 
-        const data = await response.json();
-        console.log("Fetched stores:", data);
+        if (!response.ok) {
+          throw new Error(
+            `HTTP error! status: ${response.status}, body: ${responseText}`
+          );
+        }
+
+        let data;
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error("Error parsing response:", parseError);
+          throw new Error("Invalid JSON response from server");
+        }
+
+        console.log("Successfully parsed stores data:", data);
 
         const processedData = data.map((store: any) => ({
           ...store,
@@ -295,8 +392,6 @@ export default function DeliveryPage() {
 
         setStores(processedData);
         setFilteredStores(processedData);
-
-        // Set popular and recommended stores
         setPopularStores(
           processedData.filter((store: Store) => store.isPopular)
         );
@@ -315,8 +410,10 @@ export default function DeliveryPage() {
 
         // Try to load from AsyncStorage if network request fails
         try {
+          console.log("Attempting to load stores from AsyncStorage");
           const storedData = await AsyncStorage.getItem("deliveryStores");
           if (storedData) {
+            console.log("Found stored data in AsyncStorage");
             const parsedData = JSON.parse(storedData);
             setStores(parsedData);
             setFilteredStores(parsedData);
@@ -327,6 +424,20 @@ export default function DeliveryPage() {
               parsedData.filter((store: Store) => store.isRecommended)
             );
             setError(t("showingSavedData"));
+          } else {
+            console.log(
+              "No stored data found in AsyncStorage, using demo data"
+            );
+            // Use demo data as last resort
+            setStores(demoStores);
+            setFilteredStores(demoStores);
+            setPopularStores(demoStores.filter((store) => store.isPopular));
+            setRecommendedStores(
+              demoStores.filter((store) => store.isRecommended)
+            );
+            setError(
+              "Showing demo data - please check your internet connection"
+            );
           }
         } catch (storageError) {
           console.error("Error accessing storage:", storageError);
