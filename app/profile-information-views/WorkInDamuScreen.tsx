@@ -1,4 +1,4 @@
-// File: app/(root)/work-in-damu.tsx
+// File: app/(root)/work-in-dala.tsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -205,7 +205,7 @@ const MenuItem: React.FC<MenuItemProps> = ({
   );
 };
 
-const WorkInDamuScreen: React.FC = () => {
+const WorkInDalaScreen: React.FC = () => {
   const { user, token, updateUserRole } = useAuth();
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -214,14 +214,14 @@ const WorkInDamuScreen: React.FC = () => {
     {
       id: "customer",
       name: "Customer",
-      description: "Regular user of Damu services",
+      description: "Regular user of Dala services",
       icon: <CustomerIcon />,
       active: true,
     },
     {
       id: "driver",
       name: "Taxi Driver",
-      description: "Drive and earn with Damu",
+      description: "Drive and earn with Dala",
       icon: <CarIcon />,
       active: false,
     },
@@ -351,7 +351,7 @@ const WorkInDamuScreen: React.FC = () => {
         <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
           <BackIcon />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Work in Damu</Text>
+        <Text style={styles.headerTitle}>Work in Dala</Text>
         <View style={styles.headerRight} />
       </View>
 
@@ -371,7 +371,7 @@ const WorkInDamuScreen: React.FC = () => {
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>Your Roles</Text>
           <Text style={styles.sectionDescription}>
-            Manage your roles in Damu platform
+            Manage your roles in Dala platform
           </Text>
 
           <View style={styles.rolesContainer}>
@@ -564,4 +564,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default WorkInDamuScreen;
+export default WorkInDalaScreen;

@@ -13,7 +13,7 @@ import {
 import { router, useFocusEffect } from "expo-router";
 import Svg, { Path } from "react-native-svg";
 import { useAuth } from "../auth/AuthContext"; // Import the AuthContext
-import WorkInDamuScreen from "./WorkInDamuScreen";
+import WorkInDalaScreen from "./WorkInDamuScreen";
 import { useTranslation } from "react-i18next"; // Import translation hook
 import LanguageQuickSelector from "../i18n/LanguageQuickSelector"; // Import language selector
 import AsyncStorage from "@react-native-async-storage/async-storage";

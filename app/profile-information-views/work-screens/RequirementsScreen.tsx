@@ -278,7 +278,7 @@ const RequirementsScreen: React.FC = () => {
       id: "driver",
       name: "Taxi Driver",
       icon: <CarIcon />,
-      description: "Requirements for driving with Damu",
+      description: "Requirements for driving with Dala",
       requirements: [
         {
           id: "driver_license",
@@ -315,7 +315,7 @@ const RequirementsScreen: React.FC = () => {
       id: "courier",
       name: "Delivery Courier",
       icon: <DeliveryIcon />,
-      description: "Requirements for delivering with Damu",
+      description: "Requirements for delivering with Dala",
       requirements: [
         {
           id: "id_card_courier",
@@ -344,7 +344,7 @@ const RequirementsScreen: React.FC = () => {
       id: "customer",
       name: "Customer",
       icon: <CustomerIcon />,
-      description: "Basic verification for using Damu services",
+      description: "Basic verification for using Dala services",
       requirements: [
         {
           id: "id_card_customer",
@@ -358,7 +358,7 @@ const RequirementsScreen: React.FC = () => {
   ];
 
   const handleBackPress = () => {
-    router.push("/profile-information-views/WorkInDamuScreen");
+    router.push("/profile-information-views/WorkInDalaScreen");
   };
 
   const handleRoleSelect = (roleId: string) => {

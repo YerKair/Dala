@@ -1,4 +1,4 @@
-# План локализации Damu
+# План локализации Dala
 
 ## Переведенные файлы
 
@@ -34,7 +34,7 @@
 
 - [ ] `app/profile-information-views/payment/EditPaymentMethodScreen.tsx` - Редактирование метода оплаты
 - [ ] `app/profile-information-views/work-screens/RequirementsScreen.tsx` - Требования для работы
-- [ ] `app/profile-information-views/WorkInDamuScreen.tsx` - Экран работы в Damu
+- [ ] `app/profile-information-views/WorkInDalaScreen.tsx` - Экран работы в Dala
 - [ ] `app/(tabs)/delivery/products/ProductsPage.tsx` - Страница продуктов
 - [ ] `app/(tabs)/delivery/CategoryStoresPage.tsx` - Категории магазинов
 - [ ] `app/(tabs)/delivery/AdminPage.tsx` - Админка доставки

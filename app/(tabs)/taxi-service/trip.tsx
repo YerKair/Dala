@@ -19,9 +19,11 @@ import {
   ScrollView,
   LayoutAnimation,
   UIManager,
+  TextInput,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import MapView, { Marker, Polyline, UrlTile } from "react-native-maps";
+import * as Location from "expo-location";
 import {
   Ionicons,
   FontAwesome,
@@ -42,6 +44,7 @@ import { useAuth } from "../../auth/AuthContext";
 import SonarAnimation from "../../../components/SonarAnimation";
 import { useTranslation } from "react-i18next";
 import { TaxiService } from "../../services/TaxiService";
+import { GeocodingService } from "../../services/GeocodingService";
 
 // Enable LayoutAnimation for Android
 if (
@@ -86,20 +89,20 @@ export default function TaxiTripScreen() {
     tripManager.getRemainingTime() || globalState.tripData.tripDuration
   );
   const insets = useSafeAreaInsets(); // Get safe area insets
-  const [tripStatus, setTripStatus] = useState(
-    globalState.tripData.status || "waiting"
-  );
+  const [tripStatus, setTripStatus] = useState<
+    | "waiting"
+    | "active"
+    | "completed"
+    | "cancelled"
+    | "accepted"
+    | "in_progress"
+  >(globalState.tripData.status || "waiting");
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [activeRequest, setActiveRequest] = useState<TaxiRequest | null>(null);
-
-  // Use global state for driver search
-  const [searchTimeSeconds, setSearchTimeSeconds] = useState(
-    globalState.searchTimeSeconds
-  );
-  const [isSearchingDriver, setIsSearchingDriver] = useState(
-    globalState.isSearchingDriver
-  );
-  const [driverFound, setDriverFound] = useState(globalState.driverFound);
+  const [driverInfo, setDriverInfo] = useState<DriverInfo | null>(null);
+  const [driverFound, setDriverFound] = useState(false);
+  const [isSearchingDriver, setIsSearchingDriver] = useState(false);
+  const [searchTimeSeconds, setSearchTimeSeconds] = useState(0);
   const [showDriverModal, setShowDriverModal] = useState(false);
   const [showTripCompletedModal, setShowTripCompletedModal] = useState(false);
   const [showExpandedContent, setShowExpandedContent] = useState(true);
@@ -114,15 +117,13 @@ export default function TaxiTripScreen() {
     latitude: number;
     longitude: number;
   } | null>(null);
-  const [routeCoordinates, setRouteCoordinates] = useState<
-    { latitude: number; longitude: number }[]
-  >([]);
+  const [routeCoordinates, setRouteCoordinates] = useState<any[]>([]);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(PANEL_MAX_HEIGHT);
   const initialRegion = {
     latitude: 43.238949,
     longitude: 76.889709,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
+    latitudeDelta: 0.02,
+    longitudeDelta: 0.02,
   };
 
   // Keyboard state
@@ -145,8 +146,8 @@ export default function TaxiTripScreen() {
   const [mapRegion, setMapRegion] = useState({
     latitude: 43.238949,
     longitude: 76.889709,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
+    latitudeDelta: 0.02,
+    longitudeDelta: 0.02,
   });
 
   // Driver information - initialize from globalState if available
@@ -224,22 +225,13 @@ export default function TaxiTripScreen() {
             // Водитель принял заказ
             if (event.customerId === user.id.toString()) {
               console.log(`Trip accepted by driver: ${event.driverName}`);
-              setDriverFound(true);
-              setIsSearchingDriver(false);
-
-              // Обновляем информацию о водителе
-              setDriver({
-                id: event.driverId,
-                name: event.driverName,
-                photo: require("../../../assets/images/driver-photo.jpg"),
-                rating: 4.8,
-                car: "Toyota Camry",
-                licensePlate: "A 234 BC",
-                phone: "+7 777 123 4567",
-              });
-
-              // Переходим к обновлению активных данных поездки
-              await fetchUserActiveRequest();
+              if (event.driverName && event.driverId) {
+                setDriverInfo(
+                  createDefaultDriver(event.driverId, event.driverName)
+                );
+                setDriverFound(true);
+                setIsSearchingDriver(false);
+              }
             }
           } else if (
             event.type === "trip_completed" ||
@@ -453,9 +445,11 @@ export default function TaxiTripScreen() {
           foundTrip = true;
 
           // Update driver status based on request status
-          setDriverFound(
+          setDriverInfo(
             fullRequest.driverId !== null &&
               fullRequest.driverId !== "pending_driver"
+              ? createDefaultDriver(fullRequest.driverId, "Your Driver")
+              : null
           );
           setIsSearchingDriver(
             fullRequest.status === "pending" ||
@@ -529,9 +523,11 @@ export default function TaxiTripScreen() {
             foundTrip = true;
 
             // Update driver status based on request status
-            setDriverFound(
+            setDriverInfo(
               activeUserRequest.driverId !== null &&
                 activeUserRequest.driverId !== "pending_driver"
+                ? createDefaultDriver(activeUserRequest.driverId, "Your Driver")
+                : null
             );
             setIsSearchingDriver(
               activeUserRequest.status === "pending" ||
@@ -540,10 +536,11 @@ export default function TaxiTripScreen() {
 
             // Update route based on request coordinates
             if (activeUserRequest.pickup && activeUserRequest.destination) {
-              setRoute([
+              const routeCoordinates = activeUserRequest.route || [
                 activeUserRequest.pickup.coordinates,
                 activeUserRequest.destination.coordinates,
-              ]);
+              ];
+              setRoute(routeCoordinates);
 
               // Update map region
               const midLat =
@@ -576,6 +573,7 @@ export default function TaxiTripScreen() {
                 destination: activeUserRequest.destination.name,
                 fare: activeUserRequest.fare,
                 duration: 120,
+                route: activeUserRequest.route,
               });
             }
           }
@@ -622,8 +620,10 @@ export default function TaxiTripScreen() {
           }
 
           // Update driver status based on request status
-          setDriverFound(
+          setDriverInfo(
             request.driverId !== null && request.driverId !== "pending_driver"
+              ? createDefaultDriver(request.driverId, "Your Driver")
+              : null
           );
           setIsSearchingDriver(
             request.status === "pending" ||
@@ -1218,7 +1218,7 @@ export default function TaxiTripScreen() {
       setActiveRequest(null);
       setTripStatus("cancelled");
       setIsSearchingDriver(false);
-      setDriverFound(false);
+      setDriverInfo(null);
 
       // Show cancellation alert
       Alert.alert(t("taxi.trip.tripCancelled"), cancelMessage, [
@@ -1426,11 +1426,40 @@ export default function TaxiTripScreen() {
   };
 
   // Update driver location
-  const updateDriverLocation = (location: {
+  const updateDriverLocation = async (location: {
     latitude: number;
     longitude: number;
   }) => {
-    setDriverLocation(location);
+    try {
+      // Get address name using GeocodingService
+      const addressName = await GeocodingService.reverseGeocode(
+        location.latitude,
+        location.longitude
+      );
+
+      setDriverLocation(location);
+      console.log(`Driver location updated: ${addressName}`);
+
+      // Update map region to include both driver and destination
+      if (destination) {
+        const midLat = (location.latitude + destination.latitude) / 2;
+        const midLng = (location.longitude + destination.longitude) / 2;
+
+        const latDelta =
+          Math.abs(location.latitude - destination.latitude) * 1.5 + 0.01;
+        const lngDelta =
+          Math.abs(location.longitude - destination.longitude) * 1.5 + 0.01;
+
+        setMapRegion({
+          latitude: midLat,
+          longitude: midLng,
+          latitudeDelta: latDelta,
+          longitudeDelta: lngDelta,
+        });
+      }
+    } catch (error) {
+      console.error("Error updating driver location:", error);
+    }
   };
 
   // Initialize trip data
@@ -1597,47 +1626,136 @@ export default function TaxiTripScreen() {
 
   // Найдем функцию handleCancelTrip и изменим ее
   const handleCancelTrip = async () => {
-    // Show confirmation dialog
-    Alert.alert(t("taxi.cancelTripTitle"), t("taxi.cancelTripConfirmation"), [
-      {
-        text: t("general.no"),
-        style: "cancel",
-      },
-      {
-        text: t("general.yes"),
-        style: "destructive",
-        onPress: async () => {
-          setIsLoading(true);
-          try {
-            // Отменяем поездку через API
-            if (taxiRequestId) {
-              console.log("Cancelling trip with ID:", taxiRequestId);
-              await TaxiService.cancelTrip(taxiRequestId);
-            }
+    try {
+      console.log("Starting trip cancellation process");
 
-            // Отменяем поездку локально через tripManager
-            tripManager.cancelTrip("User cancelled trip");
+      // Try to get request ID from either activeRequest or globalState
+      let requestId = activeRequest?.id;
 
-            // Дополнительная очистка состояния
-            if (user && user.id) {
-              console.log("Performing complete state reset for user:", user.id);
-              await forceResetTripState(user.id.toString());
-            }
+      if (!requestId && globalState.tripData.isActive) {
+        // If no active request but trip is active in globalState,
+        // use the startTime as a fallback ID
+        requestId = globalState.tripData.startTime?.toString();
+        console.log("Using startTime as request ID:", requestId);
+      }
 
-            // Небольшая задержка для завершения всех операций
-            setTimeout(() => {
-              console.log("Navigating back to taxi screen after cancel");
-              router.replace("/(tabs)/taxi-service/taxi");
-            }, 500);
-          } catch (error) {
-            console.error("Error cancelling trip:", error);
-            Alert.alert(t("general.error"), t("taxi.cancelTripError"));
-          } finally {
-            setIsLoading(false);
-          }
-        },
-      },
-    ]);
+      if (!requestId) {
+        console.log("No request ID found, redirecting to taxi screen");
+        // Reset all states and navigate
+        setDriverInfo(null);
+        setDriverFound(false);
+        setIsSearchingDriver(false);
+        setActiveRequest(null);
+        setRoute([]);
+        setTripStatus("cancelled");
+
+        // Reset global state
+        globalState.tripData = {
+          isActive: false,
+          startTime: null,
+          endTime: null,
+          tripDuration: 120,
+          driverId: null,
+          driverName: null,
+          origin: null,
+          destination: null,
+          fare: null,
+          status: "cancelled",
+          driverLocation: null,
+          customerLocation: null,
+          lastLocationUpdate: null,
+          estimatedArrival: null,
+        };
+        globalState.needsNewOrder = true;
+        globalState.isSearchingDriver = false;
+        globalState.driverFound = false;
+        globalState.activeTaxiTrip = false;
+
+        // Clear AsyncStorage
+        if (user?.id) {
+          const keysToRemove = [
+            `trip_state_${user.id}`,
+            `active_request_${user.id}`,
+            `taxiRequests_${user.id}`,
+            `trip_coordinates_${user.id}`,
+            `active_trip_${user.id}`,
+            `user_active_request_${user.id}`,
+            `driver_location_${user.id}`,
+            `customer_location_${user.id}`,
+            `trip_events_${user.id}`,
+          ];
+          await AsyncStorage.multiRemove(keysToRemove);
+        }
+
+        router.replace("/(tabs)/taxi-service/taxi");
+        return;
+      }
+
+      // Try to cancel the trip
+      const cancelled = await TaxiService.cancelTrip(requestId);
+
+      // Even if the API call fails, we want to clean up the local state
+      if (!cancelled) {
+        console.log("Trip cancellation failed, cleaning up local state anyway");
+      }
+
+      // Reset all states regardless of API response
+      setDriverInfo(null);
+      setDriverFound(false);
+      setIsSearchingDriver(false);
+      setActiveRequest(null);
+      setRoute([]);
+      setTripStatus("cancelled");
+
+      // Reset global state
+      globalState.tripData = {
+        isActive: false,
+        startTime: null,
+        endTime: null,
+        tripDuration: 120,
+        driverId: null,
+        driverName: null,
+        origin: null,
+        destination: null,
+        fare: null,
+        status: "cancelled",
+        driverLocation: null,
+        customerLocation: null,
+        lastLocationUpdate: null,
+        estimatedArrival: null,
+      };
+      globalState.needsNewOrder = true;
+      globalState.isSearchingDriver = false;
+      globalState.driverFound = false;
+      globalState.activeTaxiTrip = false;
+
+      // Clear AsyncStorage
+      if (user?.id) {
+        const keysToRemove = [
+          `trip_state_${user.id}`,
+          `active_request_${user.id}`,
+          `taxiRequests_${user.id}`,
+          `trip_coordinates_${user.id}`,
+          `active_trip_${user.id}`,
+          `user_active_request_${user.id}`,
+          `driver_location_${user.id}`,
+          `customer_location_${user.id}`,
+          `trip_events_${user.id}`,
+        ];
+        await AsyncStorage.multiRemove(keysToRemove);
+      }
+
+      console.log("Trip state cleanup completed, navigating to taxi screen");
+      router.replace("/(tabs)/taxi-service/taxi");
+    } catch (error) {
+      console.error("Error in handleCancelTrip:", error);
+      Alert.alert(
+        "Error",
+        "An error occurred while canceling the trip. Please try again."
+      );
+      // Also navigate to taxi screen in case of error
+      router.replace("/(tabs)/taxi-service/taxi");
+    }
   };
 
   // В самом начале функции, после констант добавим состояние загрузки
@@ -1652,6 +1770,481 @@ export default function TaxiTripScreen() {
     }
   }, [activeRequest]);
 
+  // Добавляем эффект для очистки при размонтировании
+  useEffect(() => {
+    return () => {
+      console.log("Trip screen unmounting, cleaning up state");
+
+      // Очищаем состояние компонента при размонтировании
+      setTaxiRequestId(null);
+      setDriverLocation(null);
+      setDestination(null);
+      setRouteCoordinates([]);
+      setMapRegion({
+        latitude: 43.238949,
+        longitude: 76.889709,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      });
+      setActiveRequest(null);
+      setDriverInfo(null);
+      setIsSearchingDriver(false);
+      setSearchTimeSeconds(0);
+
+      // Всегда очищаем глобальное состояние при размонтировании
+      console.log("Resetting global state on unmount");
+      globalState.tripData = {
+        isActive: false,
+        startTime: null,
+        endTime: null,
+        tripDuration: 120,
+        driverId: null,
+        driverName: null,
+        origin: null,
+        destination: null,
+        fare: null,
+        status: null,
+        driverLocation: null,
+        customerLocation: null,
+        lastLocationUpdate: null,
+        estimatedArrival: null,
+      };
+      globalState.pickupCoordinates = null;
+      globalState.destinationCoordinates = null;
+      globalState.needsNewOrder = true;
+      globalState.isSearchingDriver = false;
+      globalState.driverFound = false;
+      globalState.driverLocation = null;
+      globalState.customerLocation = null;
+      globalState.activeTaxiTrip = false;
+
+      // Очищаем AsyncStorage
+      if (user?.id) {
+        const keysToRemove = [
+          "activeRequest",
+          "tripData",
+          "tripState",
+          "lastTripId",
+          `trip_state_${user.id}`,
+          `active_request_${user.id}`,
+          `driver_location_${user.id}`,
+          `customer_location_${user.id}`,
+          `trip_events_${user.id}`,
+          `taxi_requests_${user.id}`,
+          `active_trip_${user.id}`,
+          `user_active_request_${user.id}`,
+        ];
+        AsyncStorage.multiRemove(keysToRemove).catch((error) => {
+          console.error("Error cleaning up AsyncStorage:", error);
+        });
+      }
+
+      console.log("Trip state cleanup completed");
+    };
+  }, [user]);
+
+  // Helper function to create default driver info
+  const createDefaultDriver = (id: string, name: string): DriverInfo => ({
+    id,
+    name,
+    photo: null,
+    rating: 0,
+    car: "",
+    licensePlate: "",
+  });
+
+  // Location tracking states
+  const [customerLocation, setCustomerLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+
+  const [simulatedDriverLocation, setSimulatedDriverLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+
+  const locationSubscription = useRef<any>(null);
+  const driverSimulationInterval = useRef<any>(null);
+
+  // Track if order is accepted
+  const [isOrderAccepted, setIsOrderAccepted] = useState(false);
+
+  // Start tracking customer location
+  useEffect(() => {
+    const startLocationTracking = async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission denied",
+          "Location permission is required for this feature"
+        );
+        return;
+      }
+
+      // Start watching position
+      locationSubscription.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 5000,
+          distanceInterval: 10,
+        },
+        (location) => {
+          setCustomerLocation({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          });
+        }
+      );
+    };
+
+    startLocationTracking();
+
+    // Cleanup
+    return () => {
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+      }
+      if (driverSimulationInterval.current) {
+        clearInterval(driverSimulationInterval.current);
+      }
+    };
+  }, []);
+
+  // Add new states for driver simulation
+  const [driverPhase, setDriverPhase] = useState<
+    "to_customer" | "to_destination"
+  >("to_customer");
+
+  // Function to generate random initial driver position
+  const generateRandomDriverStartPosition = () => {
+    // Generate position 2-3 km away from customer
+    const radius = 2 + Math.random(); // Random distance between 2-3 km
+    const angle = Math.random() * 2 * Math.PI; // Random angle
+
+    const lat = customerLocation!.latitude + (radius / 111) * Math.cos(angle);
+    const lng = customerLocation!.longitude + (radius / 111) * Math.sin(angle);
+
+    return { latitude: lat, longitude: lng };
+  };
+
+  // Function to simulate driver movement
+  const simulateDriverMovement = (
+    currentPos: { latitude: number; longitude: number },
+    targetPos: { latitude: number; longitude: number },
+    speed: number = 0.1
+  ) => {
+    const newLat =
+      currentPos.latitude + (targetPos.latitude - currentPos.latitude) * speed;
+    const newLng =
+      currentPos.longitude +
+      (targetPos.longitude - currentPos.longitude) * speed;
+
+    return { latitude: newLat, longitude: newLng };
+  };
+
+  // Calculate distance between two points
+  const calculateDistance = (
+    pos1: { latitude: number; longitude: number },
+    pos2: { latitude: number; longitude: number }
+  ) => {
+    return Math.sqrt(
+      Math.pow(pos1.latitude - pos2.latitude, 2) +
+        Math.pow(pos1.longitude - pos2.longitude, 2)
+    );
+  };
+
+  // Start driver simulation when order is accepted
+  useEffect(() => {
+    if (isOrderAccepted && customerLocation) {
+      // Generate random initial position for driver
+      const initialDriverLocation = generateRandomDriverStartPosition();
+      setSimulatedDriverLocation(initialDriverLocation);
+      setDriverPhase("to_customer");
+
+      // Start movement simulation
+      driverSimulationInterval.current = setInterval(() => {
+        if (!simulatedDriverLocation) return;
+
+        const targetPosition =
+          driverPhase === "to_customer" ? customerLocation : destination;
+
+        if (!targetPosition) return;
+
+        // Calculate new position
+        const newLocation = simulateDriverMovement(
+          simulatedDriverLocation,
+          targetPosition,
+          driverPhase === "to_customer" ? 0.1 : 0.05 // Slower speed when driving to destination
+        );
+
+        // Update driver location
+        setSimulatedDriverLocation(newLocation);
+
+        // Check if reached target
+        const distance = calculateDistance(newLocation, targetPosition);
+
+        if (distance < 0.0001) {
+          // About 10 meters
+          if (driverPhase === "to_customer") {
+            // Reached customer, now head to destination
+            setDriverPhase("to_destination");
+            // Show alert that driver has arrived
+            Alert.alert(
+              t("taxi.trip.driverArrived"),
+              t("taxi.trip.driverArrivedMessage"),
+              [{ text: t("ok") }]
+            );
+          } else {
+            // Reached destination
+            clearInterval(driverSimulationInterval.current);
+            // Show trip completed modal
+            setShowTripCompletedModal(true);
+          }
+        }
+      }, 1000);
+    }
+
+    return () => {
+      if (driverSimulationInterval.current) {
+        clearInterval(driverSimulationInterval.current);
+      }
+    };
+  }, [isOrderAccepted, customerLocation, driverPhase]);
+
+  // Update map to show route between driver, customer and destination
+  const renderRoute = () => {
+    if (!simulatedDriverLocation || !customerLocation || !destination)
+      return null;
+
+    return (
+      <>
+        {/* Show route line */}
+        <Polyline
+          coordinates={
+            driverPhase === "to_customer"
+              ? [simulatedDriverLocation, customerLocation]
+              : [simulatedDriverLocation, destination]
+          }
+          strokeWidth={3}
+          strokeColor="#000"
+        />
+
+        {/* Show all markers */}
+        <Marker coordinate={simulatedDriverLocation}>
+          <View style={styles.driverMarker}>
+            <MaterialCommunityIcons name="car" size={24} color="#000" />
+          </View>
+        </Marker>
+
+        <Marker coordinate={customerLocation}>
+          <View style={styles.customerMarker}>
+            <View style={styles.customerDot} />
+          </View>
+        </Marker>
+
+        <Marker coordinate={destination}>
+          <MaterialIcons name="location-pin" size={32} color="#F44336" />
+        </Marker>
+      </>
+    );
+  };
+
+  // Update isOrderAccepted when trip status changes
+  useEffect(() => {
+    setIsOrderAccepted(
+      tripStatus === "accepted" || tripStatus === "in_progress"
+    );
+  }, [tripStatus]);
+
+  // Update map region to show all points
+  const updateMapRegion = () => {
+    if (
+      !simulatedDriverLocation ||
+      !customerLocation ||
+      !destination ||
+      !mapRef.current
+    )
+      return;
+
+    const points = [simulatedDriverLocation, customerLocation, destination];
+
+    // Calculate bounds
+    const minLat = Math.min(...points.map((p) => p.latitude));
+    const maxLat = Math.max(...points.map((p) => p.latitude));
+    const minLng = Math.min(...points.map((p) => p.longitude));
+    const maxLng = Math.max(...points.map((p) => p.longitude));
+
+    // Calculate center
+    const midLat = (minLat + maxLat) / 2;
+    const midLng = (minLng + maxLng) / 2;
+
+    // Calculate deltas with padding
+    const latDelta = (maxLat - minLat) * 1.5;
+    const lngDelta = (maxLng - minLng) * 1.5;
+
+    mapRef.current.animateToRegion(
+      {
+        latitude: midLat,
+        longitude: midLng,
+        latitudeDelta: Math.max(latDelta, 0.02),
+        longitudeDelta: Math.max(lngDelta, 0.02),
+      },
+      1000
+    );
+  };
+
+  // Update map region when points change
+  useEffect(() => {
+    if (isOrderAccepted) {
+      updateMapRegion();
+    }
+  }, [simulatedDriverLocation, customerLocation, destination, driverPhase]);
+
+  const renderTripDetails = () => (
+    <View style={styles.tripDetailsContainer}>
+      <Text style={styles.sectionTitle}>{t("taxi.trip.tripDetails")}</Text>
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>{t("taxi.trip.priceOfTrip")}</Text>
+        <Text style={styles.detailValue}>{tripPrice}</Text>
+      </View>
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>{t("taxi.trip.paymentMethod")}</Text>
+        <Text style={styles.detailValue}>{maskedCardNumber}</Text>
+      </View>
+      <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>{t("taxi.trip.travelPoint")}</Text>
+        <Text style={styles.detailValue}>{destinationAddress}</Text>
+      </View>
+    </View>
+  );
+
+  const renderDriverInfo = () => (
+    <View style={styles.driverInfoContainer}>
+      <Text style={styles.sectionTitle}>{t("taxi.trip.driverInfo")}</Text>
+      <View style={styles.driverCard}>
+        <Image
+          source={driverPhoto}
+          style={styles.driverPhoto}
+          defaultSource={require("./../../../assets/images/driver-placeholder.jpg")}
+        />
+        <View style={styles.driverDetails}>
+          <Text style={styles.driverName}>{driverName}</Text>
+          <View style={styles.ratingContainer}>
+            <Text style={styles.ratingLabel}>{t("taxi.trip.rating")}: </Text>
+            {renderStars(driverRating)}
+          </View>
+          <View style={styles.carInfo}>
+            <Text style={styles.carLabel}>{t("taxi.trip.car")}: </Text>
+            <Text style={styles.carValue}>{carModel}</Text>
+          </View>
+          <View style={styles.plateInfo}>
+            <Text style={styles.plateLabel}>
+              {t("taxi.trip.licensePlate")}:{" "}
+            </Text>
+            <Text style={styles.plateValue}>{carPlate}</Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderActionButtons = () => (
+    <View style={styles.actionButtonsContainer}>
+      <TouchableOpacity
+        style={[styles.actionButton, styles.callButton]}
+        onPress={handleCallDriver}
+      >
+        <Ionicons name="call" size={24} color="white" />
+        <Text style={styles.actionButtonText}>{t("taxi.trip.callDriver")}</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.actionButton, styles.chatButton]}
+        onPress={handleChatWithDriver}
+      >
+        <Ionicons name="chatbubble" size={24} color="white" />
+        <Text style={styles.actionButtonText}>
+          {t("taxi.trip.chatWithDriver")}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderCancelButton = () => (
+    <TouchableOpacity
+      style={[styles.actionButton, styles.cancelButton]}
+      onPress={handleCancelTrip}
+    >
+      <Text style={styles.cancelButtonText}>{t("taxi.trip.cancelTrip")}</Text>
+    </TouchableOpacity>
+  );
+
+  const renderTripStatus = () => {
+    let statusMessage = "";
+    switch (tripStatus) {
+      case "waiting":
+        statusMessage = t("taxi.trip.waitingForDriver");
+        break;
+      case "accepted":
+        statusMessage = t("taxi.trip.driverOnWay");
+        break;
+      case "in_progress":
+        statusMessage = t("taxi.trip.inProgress");
+        break;
+      case "completed":
+        statusMessage = t("taxi.trip.completed");
+        break;
+      case "cancelled":
+        statusMessage = t("taxi.trip.cancelled");
+        break;
+      default:
+        statusMessage = "";
+    }
+    return (
+      <View style={styles.statusContainer}>
+        <Text style={styles.statusText}>{statusMessage}</Text>
+      </View>
+    );
+  };
+
+  const renderTripCompletedModal = () => (
+    <Modal
+      visible={showTripCompletedModal}
+      animationType="slide"
+      transparent={true}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>{t("taxi.trip.thankYou")}</Text>
+          <Text style={styles.modalSubtitle}>
+            {t("taxi.trip.howWasYourTrip")}
+          </Text>
+          <View style={styles.ratingContainer}>{renderStars(5)}</View>
+          <TextInput
+            style={styles.commentInput}
+            placeholder={t("taxi.trip.leaveComment")}
+            multiline
+            numberOfLines={3}
+          />
+          <TouchableOpacity
+            style={styles.submitButton}
+            onPress={handleRateDriverLater}
+          >
+            <Text style={styles.submitButtonText}>{t("taxi.trip.submit")}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.laterButton}
+            onPress={handleRateDriverLater}
+          >
+            <Text style={styles.laterButtonText}>
+              {t("taxi.trip.rateLater")}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -1663,42 +2256,11 @@ export default function TaxiTripScreen() {
           ref={mapRef}
           style={styles.map}
           initialRegion={initialRegion}
-          region={mapRegion}
-          scrollEnabled={!keyboardVisible}
+          mapType="standard"
+          showsUserLocation={true}
+          showsMyLocationButton={true}
         >
-          {/* Driver Marker */}
-          {driverLocation && (
-            <Marker coordinate={driverLocation} anchor={{ x: 0.5, y: 0.5 }}>
-              <View style={styles.carMarker}>
-                <MaterialCommunityIcons name="car" size={20} color="#4A5D23" />
-              </View>
-            </Marker>
-          )}
-
-          {/* Destination Marker */}
-          {destination && (
-            <Marker
-              coordinate={{
-                latitude: destination.latitude,
-                longitude: destination.longitude,
-              }}
-              anchor={{ x: 0.5, y: 0.5 }}
-            >
-              <View style={styles.destinationMarker}>
-                <MaterialIcons name="location-pin" size={32} color="#F44336" />
-              </View>
-            </Marker>
-          )}
-
-          {/* Trip Route */}
-          {routeCoordinates.length > 0 && (
-            <Polyline
-              coordinates={routeCoordinates}
-              strokeWidth={4}
-              strokeColor="#4A5D23"
-              lineDashPattern={[0]}
-            />
-          )}
+          {isOrderAccepted && renderRoute()}
         </MapView>
 
         <TouchableOpacity style={styles.backButton} onPress={goToHome}>
@@ -1760,17 +2322,17 @@ export default function TaxiTripScreen() {
         )}
 
         {/* Driver Info */}
-        {driverFound && !isSearchingDriver && (
+        {driverFound && driverInfo && !isSearchingDriver && (
           <View style={styles.driverInfoContainer}>
             <Image
               source={
-                driverPhoto ||
-                require("../../../assets/images/driver-photo.jpg")
+                driverInfo.photo ||
+                require("../../../assets/images/driver-placeholder.jpg")
               }
               style={styles.driverPhoto}
             />
             <View style={styles.driverDetails}>
-              <Text style={styles.driverName}>{driverName}</Text>
+              <Text style={styles.driverName}>{driverInfo.name}</Text>
               <View style={styles.ratingContainer}>
                 {renderStars(driverRating)}
               </View>
@@ -1899,7 +2461,7 @@ export default function TaxiTripScreen() {
         transparent={true}
         animationType="fade"
       >
-        <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
           <View
             style={[
               styles.modalContent,
@@ -1943,7 +2505,7 @@ export default function TaxiTripScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F6FA",
+    backgroundColor: "#fff",
   },
   mapContainer: {
     height: "60%",
@@ -1951,52 +2513,144 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
   },
   backButton: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 50 : 20,
+    top: 50,
     left: 20,
+    zIndex: 100,
+  },
+  tripDetailsContainer: {
+    padding: 20,
     backgroundColor: "white",
+    borderRadius: 16,
+    marginBottom: 20,
+  },
+  driverInfoContainer: {
+    padding: 20,
+    backgroundColor: "white",
+    borderRadius: 16,
+  },
+  driverCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  driverPhoto: {
+    width: 60,
+    height: 60,
     borderRadius: 30,
-    height: 40,
-    width: 40,
+    marginRight: 15,
+  },
+  driverDetails: {
+    flex: 1,
+  },
+  driverName: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#212121",
+    marginBottom: 5,
+  },
+  ratingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 5,
+  },
+  carInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 5,
+  },
+  plateInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  textLabel: {
+    fontSize: 14,
+    color: "#757575",
+  },
+  textValue: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#212121",
+  },
+  modalOverlay: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 5,
-      },
-    }),
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
-  bottomPanel: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
+  modalCard: {
     backgroundColor: "white",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderRadius: 16,
+    padding: 20,
+    width: "90%",
+    maxWidth: 400,
+  },
+  modalHeading: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#212121",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  modalText: {
+    fontSize: 16,
+    color: "#757575",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  statusBox: {
+    marginTop: 15,
+    paddingVertical: 10,
     paddingHorizontal: 20,
-    paddingTop: 12,
-    maxHeight: "80%",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#4CAF50",
+    alignItems: "center",
+  },
+  statusMessage: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#4CAF50",
+  },
+  button: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  buttonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "500",
+    marginLeft: 10,
+  },
+  primaryButton: {
+    backgroundColor: "#4CAF50",
+  },
+  secondaryButton: {
+    backgroundColor: "#673AB7",
+  },
+  dangerButton: {
+    backgroundColor: "#FF3B30",
+  },
+  textInput: {
+    width: "100%",
+    height: 100,
+    borderWidth: 1,
+    borderColor: "#757575",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 20,
   },
   arrivalIndicator: {
     width: "100%",
@@ -2030,39 +2684,6 @@ const styles = StyleSheet.create({
     color: "#333",
     marginTop: 10,
   },
-  driverInfoContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 15,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-  },
-  driverPhoto: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 15,
-  },
-  driverDetails: {
-    flex: 1,
-  },
-  driverName: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#212121",
-    marginBottom: 4,
-  },
-  ratingContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  carInfo: {
-    fontSize: 14,
-    color: "#757575",
-  },
   contactButtons: {
     flexDirection: "row",
   },
@@ -2077,10 +2698,6 @@ const styles = StyleSheet.create({
   },
   chatButton: {
     backgroundColor: "#673AB7",
-  },
-  tripDetailsContainer: {
-    width: "100%",
-    marginTop: 10,
   },
   tripDetailRow: {
     flexDirection: "row",
@@ -2132,7 +2749,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   cancelButton: {
-    backgroundColor: "#000",
+    backgroundColor: "#FF3B30",
     paddingVertical: 15,
     borderRadius: 25,
     alignItems: "center",
@@ -2155,13 +2772,6 @@ const styles = StyleSheet.create({
   destinationMarker: {
     justifyContent: "center",
     alignItems: "center",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
   },
   modalContent: {
     backgroundColor: "white",
@@ -2198,7 +2808,7 @@ const styles = StyleSheet.create({
     color: "#212121",
     textAlign: "center",
   },
-  modalText: {
+  modalSubtitle: {
     fontSize: 16,
     color: "#616161",
     marginBottom: 24,
@@ -2240,7 +2850,7 @@ const styles = StyleSheet.create({
   expandedContentScrollable: {
     width: "100%",
     marginTop: 5,
-    maxHeight: 400, // Устанавливаем максимальную высоту для скролла
+    maxHeight: 400,
   },
   expandedContentContainer: {
     paddingBottom: 30,
@@ -2262,5 +2872,167 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "500",
+  },
+  customerMarker: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "rgba(0, 122, 255, 0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  customerDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#007AFF",
+  },
+  driverMarker: {
+    padding: 5,
+    backgroundColor: "#FFF",
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "#000",
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 10,
+    color: "#212121",
+    textAlign: "center",
+  },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  detailLabel: {
+    fontSize: 16,
+    color: "#757575",
+  },
+  detailValue: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#212121",
+  },
+  ratingLabel: {
+    fontSize: 14,
+    color: "#757575",
+    marginRight: 5,
+  },
+  carLabel: {
+    fontSize: 14,
+    color: "#757575",
+    marginRight: 5,
+  },
+  plateLabel: {
+    fontSize: 14,
+    color: "#757575",
+    marginRight: 5,
+  },
+  plateValue: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#212121",
+  },
+  statusContainer: {
+    marginTop: 15,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#4CAF50",
+    alignItems: "center",
+  },
+  statusText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#4CAF50",
+  },
+  actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: "#4CAF50",
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  actionButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "500",
+    marginLeft: 10,
+  },
+  callButton: {
+    backgroundColor: "#4CAF50",
+  },
+  submitButton: {
+    backgroundColor: "#4CAF50",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    width: "100%",
+    alignItems: "center",
+    marginTop: 20,
+  },
+  submitButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  laterButton: {
+    backgroundColor: "#673AB7",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    width: "100%",
+    alignItems: "center",
+    marginTop: 10,
+  },
+  laterButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  commentInput: {
+    width: "100%",
+    height: 100,
+    borderWidth: 1,
+    borderColor: "#757575",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 20,
+  },
+  carValue: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#212121",
+  },
+  bottomPanel: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "white",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
 });

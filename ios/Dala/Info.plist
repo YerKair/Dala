@@ -40,9 +40,9 @@
     <key>UIStatusBarStyle</key>
     <string>UIStatusBarStyleDefault</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>We need your location to find taxis near you and provide accurate pickup service.</string>
+    <string>We need your location to find nearby taxis and provide accurate pickup services.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>We need your location to track your taxi ride and provide accurate service even when the app is in the background.</string>
+    <string>We need your location to track your taxi ride and provide real-time updates on your journey.</string>
     <key>NSLocationAlwaysUsageDescription</key>
     <string>We need your location to track your taxi ride and provide accurate service even when the app is in the background.</string>
 </dict>

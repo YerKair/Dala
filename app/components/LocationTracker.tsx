@@ -1,5 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Platform, AppState } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Platform,
+  AppState,
+  Alert,
+  Linking,
+} from "react-native";
 import * as Location from "expo-location";
 import { useAuth } from "../auth/AuthContext";
 import { TaxiService } from "../services/TaxiService";
@@ -8,10 +16,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Configuration options
 const LOCATION_CONFIG = {
-  accuracy: Location.Accuracy.Balanced,
-  timeInterval: 5000, // 5 seconds interval for background updates
-  distanceInterval: 10, // 10 meters minimum movement
-  mayShowUserSettingsDialog: true,
+  accuracy: Location.Accuracy.BestForNavigation,
+  timeInterval: 3000, // 3 seconds interval for updates
+  distanceInterval: 5, // 5 meters minimum movement
+  mayShowUserSettingsDialog: false,
 };
 
 type LocationTrackerProps = {
@@ -26,12 +34,6 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
   onLocationUpdate,
 }) => {
   const { user } = useAuth();
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [location, setLocation] = useState<Location.LocationObject | null>(
-    null
-  );
-  const [permissionStatus, setPermissionStatus] =
-    useState<Location.PermissionStatus | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(
     null
   );
@@ -42,26 +44,13 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
   const requestLocationPermissions = async () => {
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      setPermissionStatus(status);
+      if (status !== "granted") return false;
 
-      if (status !== "granted") {
-        setErrorMsg("Permission to access location was denied");
-        return false;
-      }
-
-      // Also request background permissions if on a real device
       if (Platform.OS !== "web") {
-        const { status: backgroundStatus } =
-          await Location.requestBackgroundPermissionsAsync();
-        if (backgroundStatus !== "granted") {
-          console.log("Background location permission not granted");
-        }
+        await Location.requestBackgroundPermissionsAsync();
       }
-
       return true;
-    } catch (error) {
-      console.error("Error requesting location permissions:", error);
-      setErrorMsg("Failed to request location permissions");
+    } catch {
       return false;
     }
   };
@@ -74,23 +63,19 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
       // Stop any existing subscription
       stopLocationTracking();
 
-      // Request permissions if needed
-      const hasPermission =
-        permissionStatus === "granted"
-          ? true
-          : await requestLocationPermissions();
+      // Request permissions silently
+      const hasPermission = await requestLocationPermissions();
       if (!hasPermission) {
         console.log("No permission to track location");
         return;
       }
 
-      // Get current location first
+      // Get current location first with high accuracy
       const currentLocation = await Location.getCurrentPositionAsync({
         accuracy: LOCATION_CONFIG.accuracy,
       });
 
       // Update state with current location
-      setLocation(currentLocation);
       if (onLocationUpdate) {
         onLocationUpdate(currentLocation);
       }
@@ -105,11 +90,10 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
       // Update service with current location
       await updateLocationInService(currentLocation, userRole);
 
-      // Start watching position
+      // Start watching position with high accuracy
       locationSubscription.current = await Location.watchPositionAsync(
         LOCATION_CONFIG,
         (newLocation) => {
-          setLocation(newLocation);
           if (onLocationUpdate) {
             onLocationUpdate(newLocation);
           }
@@ -118,9 +102,8 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
       );
 
       console.log(`Location tracking started for ${userRole}`);
-    } catch (error) {
-      console.error("Error starting location tracking:", error);
-      setErrorMsg("Failed to start location tracking");
+    } catch {
+      // Silently handle any errors
     }
   };
 
@@ -197,24 +180,19 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
               JSON.stringify(locationInfo)
             );
           }
+
+          if (tripId && role === "driver") {
+            const etaInfo = await TaxiService.calculateETA(tripId);
+            if (etaInfo.etaSeconds) {
+              globalState.tripData.estimatedArrival = etaInfo.etaSeconds;
+            }
+          }
         } catch (error) {
           console.error("Error saving location to AsyncStorage:", error);
         }
       }
-
-      // Calculate ETA if needed
-      if (tripId && role === "driver") {
-        try {
-          const etaInfo = await TaxiService.calculateETA(tripId);
-          if (etaInfo.etaSeconds) {
-            globalState.tripData.estimatedArrival = etaInfo.etaSeconds;
-          }
-        } catch (etaError) {
-          console.log("Error calculating ETA:", etaError);
-        }
-      }
-    } catch (error) {
-      console.error("Error updating location in service:", error);
+    } catch {
+      // Silently handle any errors
     }
   };
 
@@ -249,15 +227,8 @@ const LocationTracker: React.FC<LocationTrackerProps> = ({
     };
   }, [isActive, user, tripId]);
 
-  if (!errorMsg) {
-    return null;
-  }
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.errorText}>{errorMsg}</Text>
-    </View>
-  );
+  // Return null instead of error view
+  return null;
 };
 
 const styles = StyleSheet.create({

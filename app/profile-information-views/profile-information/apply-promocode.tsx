@@ -122,7 +122,7 @@ export default function ApplyPromocodeScreen() {
     },
     {
       id: "2",
-      code: "DAMU50",
+      code: "DALA50",
       description: t("specialPromoOffer"),
       discount: t("percentOffUpTo", { percent: "50%", amount: "$10" }),
       expiryDate: "15 Jan 2024",
