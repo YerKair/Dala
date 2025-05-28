@@ -154,7 +154,7 @@ const StoreCard = ({
           // Check if it's a full URL or a relative path
           const imageUrl = store.image_path.startsWith("http")
             ? store.image_path
-            : `http://192.168.0.104:8000${store.image_path}`;
+            : `http://192.168.0.109:8000${store.image_path}`;
 
           setStoreImage(imageUrl);
 
@@ -320,11 +320,11 @@ export default function DeliveryPage() {
 
         console.log(
           "Attempting to fetch stores from:",
-          "http://192.168.0.104:8000/api/restaurants"
+          "http://192.168.0.109:8000/api/restaurants"
         );
 
         const response = await fetch(
-          "http://192.168.0.104:8000/api/restaurants",
+          "http://192.168.0.109:8000/api/restaurants",
           {
             headers: {
               Accept: "application/json",

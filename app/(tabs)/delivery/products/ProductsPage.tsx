@@ -356,7 +356,7 @@ export default function ProductsPage() {
       // Загружаем магазины сразу
       try {
         const response = await fetch(
-          `http://192.168.0.104:8000/api/users/${storeId}`
+          `http://192.168.0.109:8000/api/users/${storeId}`
         );
         if (response.ok) {
           const data = await response.json();
@@ -452,7 +452,7 @@ export default function ProductsPage() {
 
       // Add timestamp to URL to prevent caching
       const timestamp = force ? `?_t=${Date.now()}` : "";
-      const url = `http://192.168.0.104:8000/api/categories${timestamp}`;
+      const url = `http://192.168.0.109:8000/api/categories${timestamp}`;
       console.log("Loading categories from URL:", url);
 
       const response = await fetch(url, {
@@ -579,7 +579,7 @@ export default function ProductsPage() {
       const timestamp = Date.now();
 
       // Build the API URL with category filter if selected
-      let apiUrl = `http://192.168.0.104:8000/api/products?store_id=${storeId}&page=${currentPage}&_t=${timestamp}`;
+      let apiUrl = `http://192.168.0.109:8000/api/products?store_id=${storeId}&page=${currentPage}&_t=${timestamp}`;
       if (categoryValue) {
         apiUrl += `&category_id=${categoryValue}`;
       }
@@ -849,7 +849,7 @@ export default function ProductsPage() {
 
       // Make API call to add product to cart using the correct endpoint
       const response = await fetch(
-        `http://192.168.0.104:8000/api/cart/${product.id}`,
+        `http://192.168.0.109:8000/api/cart/${product.id}`,
         {
           method: "POST",
           headers: {
@@ -952,7 +952,7 @@ export default function ProductsPage() {
 
       // Отправляем запрос
       try {
-        const response = await fetch("http://192.168.0.104:8000/api/products", {
+        const response = await fetch("http://192.168.0.109:8000/api/products", {
           method: "POST",
           headers: {
             "Content-Type": "multipart/form-data",
@@ -1090,7 +1090,7 @@ export default function ProductsPage() {
       // Обновляем продукт через API
       try {
         const response = await fetch(
-          `http://192.168.0.104:8000/api/products/${selectedProduct.id}`,
+          `http://192.168.0.109:8000/api/products/${selectedProduct.id}`,
           {
             method: "PUT",
             headers: {

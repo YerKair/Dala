@@ -153,7 +153,7 @@ export default function ProductDetail() {
 
       // Make API call to add product to cart
       const response = await fetch(
-        `http://192.168.0.104:8000/api/cart/${productId}`,
+        `http://192.168.0.109:8000/api/cart/${productId}`,
         {
           method: "POST",
           headers: {

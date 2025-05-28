@@ -89,7 +89,7 @@ export default function ProductCreation() {
 
     try {
       const response = await fetch(
-        `http://192.168.0.104:8000/api/users/${seller_id}`
+        `http://192.168.0.109:8000/api/users/${seller_id}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -111,7 +111,7 @@ export default function ProductCreation() {
       }
 
       // Запрашиваем категории из API
-      const response = await fetch("http://192.168.0.104:8000/api/categories", {
+      const response = await fetch("http://192.168.0.109:8000/api/categories", {
         headers: token
           ? {
               Accept: "application/json",
@@ -188,7 +188,7 @@ export default function ProductCreation() {
         token = await AsyncStorage.getItem("userToken");
       }
 
-      const response = await fetch("http://192.168.0.104:8000/api/products", {
+      const response = await fetch("http://192.168.0.109:8000/api/products", {
         method: "POST",
         headers: token
           ? {

@@ -21,6 +21,22 @@ export default {
   appName: "Жеткізу және Такси",
   appSlogan: "Ауылдық жерлерде, тура жеткізу",
 
+  // Profile Section
+  profileSection: {
+    personalInfo: "Жеке ақпарат",
+    personalInfoDesc: "Жеке деректеріңізді басқару",
+    orderHistory: "Тапсырыстар тарихы",
+    orderHistoryDesc: "Тапсырыстар тарихын қарау",
+    taxiHistory: "Такси тарихы",
+    taxiHistoryDesc: "Такси сапарларының тарихын қарау",
+    referFriends: "Достарыңызға ұсыныңыз",
+    referFriendsDesc: "Қосымшаны достарыңызбен бөлісіңіз",
+    notifications: "Хабарландырулар",
+    notificationsDesc: "Хабарландыруларды басқару",
+    workInDala: "Dala-да жұмыс",
+    workInDalaDesc: "Жұмыс табу",
+  },
+
   // Profile
   personalInfo: "Жеке ақпарат",
   settings: "Параметрлер",
@@ -197,6 +213,9 @@ export default {
       howWasYourTrip: "Сапарыңыз қалай өтті?",
       leaveComment: "Пікір қалдыру",
       submit: "Жіберу",
+      searchingTitle: "Жүргізуші іздеу",
+      searchingDescription: "Жүргізуші іздеу...",
+      cancelSearch: "Іздеуді тоқтату",
     },
   },
 

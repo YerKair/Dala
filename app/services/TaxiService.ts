@@ -166,7 +166,7 @@ const DEMO_AVAILABLE_TRIPS = [
 
 // TaxiService class to handle API calls
 export class TaxiService {
-  private static API_URL = "http://192.168.0.104:8000/api";
+  private static API_URL = "http://192.168.0.109:8000/api";
   private static BROADCAST_KEY = "taxi_broadcast_events";
 
   // Method to explicitly update the taxi service token

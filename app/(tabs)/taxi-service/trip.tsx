@@ -72,16 +72,16 @@ interface DriverInfo {
 }
 
 // Demo driver data
-const DEMO_DRIVER = {
-  id: "d1",
-  name: "Ivan Shastyn",
-  rating: 4.8,
-  phone: "+7 777 123 4567",
-  photoUrl: "https://randomuser.me/api/portraits/men/32.jpg",
-  carModel: "Toyota Camry",
-  carColor: "White",
-  carPlate: "A 123 BC",
-};
+// const DEMO_DRIVER = {
+//   id: "d1",
+//   name: "Ivan Shastyn",
+//   rating: 4.8,
+//   phone: "+7 777 123 4567",
+//   photoUrl: "https://randomuser.me/api/portraits/men/32.jpg",
+//   carModel: "Toyota Camry",
+//   carColor: "White",
+//   carPlate: "A 123 BC",
+// };
 
 export default function TaxiTripScreen() {
   const { t } = useTranslation();
@@ -152,21 +152,21 @@ export default function TaxiTripScreen() {
 
   // Driver information - initialize from globalState if available
   const [driver, setDriver] = useState<DriverInfo>({
-    id: globalState.tripData.driverId || "driver123",
-    name: globalState.tripData.driverName || "Ivan Shastyn",
+    id: globalState.tripData.driverId || "",
+    name: globalState.tripData.driverName || "",
     photo: require("@/assets/images/driver-photo.jpg"),
-    rating: 5.0,
-    car: "Grey Chevrolet Cobalt",
-    licensePlate: "666QSO2",
+    rating: 4.8,
+    car: "",
+    licensePlate: "",
   });
 
   // Driver info derived from driver object
-  const driverName = driver?.name || "Driver";
+  const driverName = driver?.name || t("taxi.trip.driver");
   const driverRating = driver?.rating || 4.8;
   const driverPhoto = driver?.photo;
-  const carModel = driver?.car || "Car";
-  const carColor = driver?.car?.split(" ")[0] || "Grey";
-  const carPlate = driver?.licensePlate || "ABC123";
+  const carModel = driver?.car || t("taxi.trip.car");
+  const carColor = driver?.car?.split(" ")[0] || "";
+  const carPlate = driver?.licensePlate || "";
 
   // Trip details - используем данные из activeRequest, если доступно
   const tripDetails = {

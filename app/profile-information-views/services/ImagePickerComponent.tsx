@@ -14,7 +14,7 @@ import { useAuth } from "../../auth/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Используем захардкоженный URL с IP-адресом
-const SERVER_URL = "http://192.168.0.104:8000";
+const SERVER_URL = "http://192.168.0.109:8000";
 console.log(`Используется SERVER_URL: ${SERVER_URL}`);
 
 export const ImagePickerComponent = (): JSX.Element => {
