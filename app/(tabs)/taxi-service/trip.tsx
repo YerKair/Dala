@@ -726,76 +726,49 @@ export default function TaxiTripScreen() {
         "Active request for user:",
         activeReq ? `ID: ${activeReq.id}, status: ${activeReq.status}` : "None"
       );
-      // Добавьте эту функцию перед return в TaxiTripScreen
-      const goToHome = () => {
-        if (tripStatus === "waiting" || tripStatus === "active") {
-          // Если поездка активна, запросить подтверждение перед выходом
-          Alert.alert(t("taxi.trip.tripCancelled"), t("taxi.leaveActiveTrip"), [
-            {
-              text: t("cancel"),
-              style: "cancel",
-            },
-            {
-              text: t("yes"),
-              onPress: () => {
-                // Go to the home screen instead of taxi screen
-                router.replace("/(tabs)");
-              },
-            },
-          ]);
-        } else {
-          // Если поездка завершена или отменена, просто перейти на главную
-          router.replace("/(tabs)");
-        }
-      };
-      // Verify that the request belongs to the current user
-      if (activeReq) {
-        const isCustomer =
-          activeReq.customer.id.toString() === user.id.toString();
-        const isAssignedDriver =
-          hasTaxiRole && activeReq.driverId === user.id.toString();
-
-        if (!isCustomer && !isAssignedDriver) {
-          console.error(
-            "Security alert: User attempted to access unauthorized request"
-          );
-          resetTripAndCoordinates();
-          router.replace("/(tabs)");
-          return;
-        }
-      }
-
-      // Если статус активного заказа "cancelled" или "completed", сбрасываем состояние
-      if (
-        activeReq &&
-        (activeReq.status === "cancelled" || activeReq.status === "completed")
-      ) {
-        console.log("Request is cancelled or completed, resetting state");
-        resetTripAndCoordinates();
-        router.replace("/(tabs)");
-        return;
-      }
-
-      // If no active trip or request found, redirect to home
-      if (!isActive && !globalState.tripData.isActive && !activeReq) {
-        console.log("No active trip or request, redirecting to home screen");
-        router.replace("/(tabs)");
-        return;
-      }
 
       // Если активный запрос найден, но нет активной поездки - инициализируем её
       if (activeReq && (!isActive || !globalState.tripData.isActive)) {
         console.log(
           "Active request found but no active trip, initializing trip"
         );
+
+        // Проверяем, есть ли уже назначенный водитель
+        const hasAssignedDriver = Boolean(
+          activeReq.driverId && activeReq.driverId !== "pending_driver"
+        );
+
+        // Принудительно устанавливаем состояния для предотвращения появления сонара
+        setDriverFound(true);
+        setIsSearchingDriver(false);
+
+        // Всегда устанавливаем информацию о водителе, если он назначен
+        if (hasAssignedDriver && activeReq.driverId) {
+          setDriverInfo({
+            id: activeReq.driverId,
+            name: "Your Driver",
+            photo: require("../../../assets/images/driver-photo.jpg"),
+            rating: 4.8,
+            car: "Toyota Camry",
+            licensePlate: "A 234 BC",
+          });
+
+          // Сразу устанавливаем активный статус
+          setTripStatus("active");
+        }
+
         tripManager.startTrip({
           driverId: activeReq.driverId || "pending_driver",
-          driverName: activeReq.driverId ? "Your Driver" : "Seeking Driver...",
+          driverName: hasAssignedDriver ? "Your Driver" : "Seeking Driver...",
           origin: activeReq.pickup.name,
           destination: activeReq.destination.name,
           fare: activeReq.fare,
           duration: 120, // 2 minutes default
         });
+
+        // Обновляем глобальное состояние
+        globalState.isSearchingDriver = false;
+        globalState.driverFound = true;
       }
 
       // Set global flag
@@ -841,56 +814,6 @@ export default function TaxiTripScreen() {
           longitudeDelta: Math.max(0.01, lngDelta),
         });
       }
-      // Используем координаты из globalState как запасной вариант
-      else if (
-        globalState.pickupCoordinates &&
-        globalState.destinationCoordinates
-      ) {
-        const clientCoordinates = {
-          latitude: globalState.pickupCoordinates.latitude,
-          longitude: globalState.pickupCoordinates.longitude,
-        };
-
-        // Генерируем случайную точку для водителя в радиусе 1 км от клиента
-        const driverRandomCoordinates = generateRandomNearbyPoint(
-          clientCoordinates.latitude,
-          clientCoordinates.longitude,
-          1
-        );
-
-        // Обновляем маршрут с новыми точками
-        const updatedRoute = [
-          driverRandomCoordinates, // Случайная позиция водителя
-          {
-            latitude: globalState.destinationCoordinates.latitude,
-            longitude: globalState.destinationCoordinates.longitude,
-          }, // Конечная точка
-        ];
-
-        setRoute(updatedRoute);
-
-        // Обновляем регион карты, чтобы показать весь маршрут
-        const midLat =
-          (updatedRoute[0].latitude + updatedRoute[1].latitude) / 2;
-        const midLng =
-          (updatedRoute[0].longitude + updatedRoute[1].longitude) / 2;
-
-        // Вычисляем разницу между координатами для охвата обеих точек
-        const latDelta =
-          Math.abs(updatedRoute[0].latitude - updatedRoute[1].latitude) * 1.5;
-        const lngDelta =
-          Math.abs(updatedRoute[0].longitude - updatedRoute[1].longitude) * 1.5;
-
-        setMapRegion({
-          latitude: midLat,
-          longitude: midLng,
-          latitudeDelta: Math.max(0.01, latDelta),
-          longitudeDelta: Math.max(0.01, lngDelta),
-        });
-      }
-
-      // Update UI state
-      setTripStatus(globalState.tripData.status || "waiting");
     };
 
     fetchTripData();
@@ -906,38 +829,42 @@ export default function TaxiTripScreen() {
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onPanResponderMove: (evt, gestureState) => {
+      onPanResponderMove: (_, gestureState) => {
         if (gestureState.dy > 0 && isPanelExpanded) {
-          // Collapse panel, but not more than minimum height
-          const newHeight = Math.max(
-            PANEL_MAX_HEIGHT - gestureState.dy,
-            PANEL_MIN_HEIGHT
+          // Dragging down
+          const newValue = PANEL_MAX_HEIGHT - gestureState.dy;
+          panelHeight.setValue(
+            Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, newValue))
           );
-          panelHeight.setValue(newHeight);
         } else if (gestureState.dy < 0 && !isPanelExpanded) {
-          // Expand panel, but not more than maximum height
-          const newHeight = Math.min(
-            PANEL_MIN_HEIGHT - gestureState.dy,
-            PANEL_MAX_HEIGHT
+          // Dragging up
+          const newValue = PANEL_MIN_HEIGHT + Math.abs(gestureState.dy);
+          panelHeight.setValue(
+            Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, newValue))
           );
-          panelHeight.setValue(newHeight);
         }
       },
-      onPanResponderRelease: (evt, gestureState) => {
-        // When user releases, decide whether to fully collapse or expand
+      onPanResponderRelease: (_, gestureState) => {
         if (gestureState.dy > 50 && isPanelExpanded) {
-          // Collapse
-          collapsePanel();
+          // Collapse panel
+          Animated.spring(panelHeight, {
+            toValue: PANEL_MIN_HEIGHT,
+            useNativeDriver: false,
+          }).start();
+          setIsPanelExpanded(false);
         } else if (gestureState.dy < -50 && !isPanelExpanded) {
-          // Expand
-          expandPanel();
+          // Expand panel
+          Animated.spring(panelHeight, {
+            toValue: PANEL_MAX_HEIGHT,
+            useNativeDriver: false,
+          }).start();
+          setIsPanelExpanded(true);
         } else {
           // Return to previous state
-          if (isPanelExpanded) {
-            expandPanel();
-          } else {
-            collapsePanel();
-          }
+          Animated.spring(panelHeight, {
+            toValue: isPanelExpanded ? PANEL_MAX_HEIGHT : PANEL_MIN_HEIGHT,
+            useNativeDriver: false,
+          }).start();
         }
       },
     })
@@ -2287,7 +2214,7 @@ export default function TaxiTripScreen() {
         </TouchableOpacity>
 
         {/* Searching for driver or driver found message */}
-        {isSearchingDriver ? (
+        {isSearchingDriver && !driverFound ? (
           <View style={styles.searchingContainer}>
             <SonarAnimation
               isSearching={isSearchingDriver}
@@ -2322,17 +2249,19 @@ export default function TaxiTripScreen() {
         )}
 
         {/* Driver Info */}
-        {driverFound && driverInfo && !isSearchingDriver && (
+        {(driverFound || driverInfo) && (
           <View style={styles.driverInfoContainer}>
             <Image
               source={
-                driverInfo.photo ||
+                driverInfo?.photo ||
                 require("../../../assets/images/driver-placeholder.jpg")
               }
               style={styles.driverPhoto}
             />
             <View style={styles.driverDetails}>
-              <Text style={styles.driverName}>{driverInfo.name}</Text>
+              <Text style={styles.driverName}>
+                {driverInfo?.name || driverName}
+              </Text>
               <View style={styles.ratingContainer}>
                 {renderStars(driverRating)}
               </View>
@@ -2360,7 +2289,7 @@ export default function TaxiTripScreen() {
         )}
 
         {/* Trip Details */}
-        {!isSearchingDriver && (
+        {(driverFound || driverInfo) && (
           <View style={styles.tripDetailsContainer}>
             <View style={styles.tripDetailRow}>
               <Text style={styles.tripDetailLabel}>
@@ -2405,9 +2334,7 @@ export default function TaxiTripScreen() {
               </View>
             </View>
 
-            {(tripStatus === "waiting" ||
-              tripStatus === "active" ||
-              isSearchingDriver) && (
+            {(tripStatus === "waiting" || tripStatus === "active") && (
               <View style={styles.actionButtonsContainer}>
                 <TouchableOpacity
                   style={styles.cancelButton}
@@ -3019,15 +2946,30 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: -2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -3 },
+        shadowOpacity: 0.1,
+        shadowRadius: 6,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+  },
+  dragIndicator: {
+    width: 36,
+    height: 4,
+    backgroundColor: "#E0E0E0",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 8,
+  },
+  panelContent: {
+    flex: 1,
   },
   modalContainer: {
     flex: 1,
