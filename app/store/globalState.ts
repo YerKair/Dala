@@ -29,6 +29,33 @@ interface DeliveryInfo {
   remainingTime: number;
 }
 
+interface TripData {
+  isActive: boolean;
+  startTime: number | null;
+  endTime: number | null;
+  tripDuration: number;
+  driverId: string | null;
+  driverName: string | null;
+  origin: string | null;
+  destination: string | null;
+  fare: number | null;
+  status: "waiting" | "active" | "completed" | "cancelled" | null;
+  driverLocation?: {
+    latitude: number;
+    longitude: number;
+  } | null;
+  customerLocation?: {
+    latitude: number;
+    longitude: number;
+  } | null;
+  lastLocationUpdate?: number | null; // Timestamp of last location update
+  estimatedArrival?: number | null; // Estimated arrival time in seconds
+  route?: {
+    latitude: number;
+    longitude: number;
+  }[];
+}
+
 interface GlobalState {
   activeTaxiTrip: boolean;
   needsNewOrder: boolean; // Added to indicate a new order is needed
@@ -40,22 +67,7 @@ interface GlobalState {
   activeDelivery: DeliveryInfo | null; // Информация о текущей активной доставке
   driverLocation: LocationInfo | null; // Current driver location
   customerLocation: LocationInfo | null; // Current customer location
-  tripData: {
-    isActive: boolean;
-    startTime: number | null;
-    endTime: number | null;
-    tripDuration: number; // in seconds
-    driverId: string | null;
-    driverName: string | null;
-    origin: string | null;
-    destination: string | null;
-    fare: number | null;
-    status: "waiting" | "active" | "completed" | "cancelled" | null;
-    driverLocation?: LocationInfo | null; // Driver's current location
-    customerLocation?: LocationInfo | null; // Customer's current location
-    lastLocationUpdate?: number | null; // Timestamp of last location update
-    estimatedArrival?: number | null; // Estimated arrival time in seconds
-  };
+  tripData: TripData;
 }
 
 export const globalState: GlobalState = {
@@ -84,6 +96,7 @@ export const globalState: GlobalState = {
     customerLocation: null,
     lastLocationUpdate: null,
     estimatedArrival: null,
+    route: undefined,
   },
 };
 
@@ -96,6 +109,10 @@ export const tripManager = {
     destination: string;
     fare: number;
     duration?: number;
+    route?: {
+      latitude: number;
+      longitude: number;
+    }[];
   }) => {
     const now = Date.now();
 
@@ -132,6 +149,7 @@ export const tripManager = {
       destination: tripDetails.destination,
       fare: tripDetails.fare,
       status: "waiting",
+      route: tripDetails.route,
     };
 
     console.log("Trip started:", globalState.tripData);
@@ -219,6 +237,7 @@ export const tripManager = {
       destination: null,
       fare: null,
       status: "cancelled",
+      route: undefined,
     };
 
     // Reset coordinates as well
@@ -269,6 +288,7 @@ export const tripManager = {
       destination: null,
       fare: null,
       status: null,
+      route: undefined,
     };
 
     // Reset coordinates as well
@@ -355,10 +375,22 @@ export interface TaxiRequest {
       longitude: number;
     };
   };
+  route?: {
+    latitude: number;
+    longitude: number;
+  }[];
   fare: number;
   timestamp: number;
   status: "pending" | "accepted" | "completed" | "cancelled";
   driverId: string | null;
+  driver?: {
+    id: string;
+    name: string;
+    photo?: string;
+    rating?: number;
+    car?: string;
+    licensePlate?: string;
+  };
   distance_km?: number;
   tariff?: {
     id: number;
@@ -975,136 +1007,73 @@ export const checkUserActiveTrip = async (userId: string): Promise<boolean> => {
 // Modify the forceResetTripState to be more selective
 export const forceResetTripState = async (userId: string) => {
   try {
-    console.log(`Performing complete trip state reset for user ${userId}`);
+    console.log(`Force resetting trip state for user ${userId}`);
 
-    // First check if there's an actual active trip
-    const activeTripKey = `active_trip_${userId}`;
-    const activeTrip = await AsyncStorage.getItem(activeTripKey);
+    // Сброс всех состояний в globalState
+    globalState.activeTaxiTrip = false;
+    globalState.needsNewOrder = true;
+    globalState.pickupCoordinates = null;
+    globalState.destinationCoordinates = null;
+    globalState.isSearchingDriver = false;
+    globalState.searchTimeSeconds = 0;
+    globalState.driverFound = false;
+    globalState.driverLocation = null;
+    globalState.customerLocation = null;
+    globalState.tripData = {
+      isActive: false,
+      startTime: null,
+      endTime: null,
+      tripDuration: 120,
+      driverId: null,
+      driverName: null,
+      origin: null,
+      destination: null,
+      fare: null,
+      status: null,
+      driverLocation: null,
+      customerLocation: null,
+      lastLocationUpdate: null,
+      estimatedArrival: null,
+      route: undefined,
+    };
 
-    if (activeTrip) {
-      // Parse the trip to check if it's still valid
-      try {
-        const tripData = JSON.parse(activeTrip);
-        const now = Date.now();
+    // Очистка всех связанных данных в AsyncStorage
+    const keysToRemove = [
+      `trip_state_${userId}`,
+      `active_request_${userId}`,
+      "activeRequest",
+      "tripData",
+      "tripState",
+      "lastTripId",
+      `driver_location_${userId}`,
+      `customer_location_${userId}`,
+      `trip_events_${userId}`,
+      `taxi_requests_${userId}`,
+      "taxiRequests",
+    ];
 
-        // Check if the trip is still active based on timestamp and status
-        if (tripData.lastUpdated && now - tripData.lastUpdated < 1800000) {
-          // 30 minutes
-          if (tripData.status === "accepted" || tripData.status === "pending") {
-            console.log(
-              `Found recent active trip for user ${userId}, preserving state`
-            );
-            // For active trips less than 30 minutes old, don't reset
-            return;
-          }
-        }
-      } catch (parseError) {
-        console.error("Error parsing active trip:", parseError);
-      }
+    await AsyncStorage.multiRemove(keysToRemove);
+
+    // Очистка всех запросов такси
+    const requestsJson = await AsyncStorage.getItem("taxiRequests");
+    if (requestsJson) {
+      const requests: TaxiRequest[] = JSON.parse(requestsJson);
+      const updatedRequests = requests.filter(
+        (request) =>
+          request.customer.id.toString() !== userId ||
+          (request.status !== "pending" && request.status !== "accepted")
+      );
+      await AsyncStorage.setItem(
+        "taxiRequests",
+        JSON.stringify(updatedRequests)
+      );
     }
 
-    // If we get here, either there's no active trip or it's old/invalid
-    // We need to collect all keys related to this user's trip state
-    let keysToRemove = [];
-
-    // Add direct user trip keys
-    keysToRemove.push(
-      `active_trip_${userId}`,
-      `driver_active_trip_${userId}`,
-      `user_active_request_${userId}`,
-      `taxiRequests_${userId}`
-    );
-
-    // Check for global trip state
-    const tripDataJson = await AsyncStorage.getItem("global_trip_data");
-    if (tripDataJson) {
-      try {
-        const tripData = JSON.parse(tripDataJson);
-
-        // Only clear global state if it belongs to this user
-        if (tripData.driverId === userId) {
-          keysToRemove.push(
-            "global_trip_data",
-            "global_pickup_coordinates",
-            "global_destination_coordinates",
-            "global_trip_flags",
-            "activeTaxiTripId"
-          );
-
-          // Reset global state
-          globalState.activeTaxiTrip = false;
-          globalState.isSearchingDriver = false;
-          globalState.driverFound = false;
-          globalState.needsNewOrder = true;
-          globalState.pickupCoordinates = null;
-          globalState.destinationCoordinates = null;
-
-          // Reset trip data in global state
-          globalState.tripData = {
-            isActive: false,
-            startTime: null,
-            endTime: null,
-            tripDuration: 120,
-            driverId: null,
-            driverName: null,
-            origin: null,
-            destination: null,
-            fare: null,
-            status: null,
-          };
-        } else {
-          console.log(
-            `Global trip data doesn't belong to user ${userId}, not clearing`
-          );
-        }
-      } catch (error) {
-        console.error("Error parsing global trip data:", error);
-      }
-    }
-
-    // Check taxiRequests storage to clean up only this user's requests
-    try {
-      const taxiRequestsJson = await AsyncStorage.getItem("taxiRequests");
-      if (taxiRequestsJson) {
-        const requests = JSON.parse(taxiRequestsJson);
-
-        // Filter out requests for this user
-        const updatedRequests = requests.filter(
-          (req: any) =>
-            req.customer?.id.toString() !== userId && req.driverId !== userId
-        );
-
-        if (updatedRequests.length !== requests.length) {
-          // Only update storage if we removed some items
-          await AsyncStorage.setItem(
-            "taxiRequests",
-            JSON.stringify(updatedRequests)
-          );
-          console.log(`Cleared requests for user ${userId} from taxiRequests`);
-        }
-      }
-    } catch (error) {
-      console.error("Error cleaning taxiRequests:", error);
-      keysToRemove.push("taxiRequests"); // If error, remove whole list
-    }
-
-    // Actually remove the keys
-    console.log(
-      `Removing ${keysToRemove.length} keys from AsyncStorage:`,
-      JSON.stringify(keysToRemove)
-    );
-
-    for (const key of keysToRemove) {
-      try {
-        await AsyncStorage.removeItem(key);
-      } catch (error) {
-        console.error(`Error removing key ${key}:`, error);
-      }
-    }
-
-    console.log("Trip state has been completely reset");
+    console.log(`Successfully reset trip state for user ${userId}`);
+    return true;
   } catch (error) {
     console.error("Error in forceResetTripState:", error);
+    return false;
   }
 };
 

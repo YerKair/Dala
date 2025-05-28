@@ -501,7 +501,7 @@ export default function TaxiOrderScreen() {
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
             {
               headers: {
-                "User-Agent": "DamuTaxiApp/1.0",
+                "User-Agent": "DalaTaxiApp/1.0",
               },
             }
           );
@@ -609,7 +609,7 @@ export default function TaxiOrderScreen() {
         )}&format=json&addressdetails=1&limit=5`,
         {
           headers: {
-            "User-Agent": "DamuTaxiApp/1.0",
+            "User-Agent": "DalaTaxiApp/1.0",
           },
         }
       );

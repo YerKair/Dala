@@ -206,15 +206,12 @@ export default function AdminPage() {
 
       console.log("Fetching stores from API...");
 
-      const response = await fetch(
-        "http://192.168.0.104:8000/api/restaurants",
-        {
-          headers: {
-            Accept: "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const response = await fetch("http:///api/restaurants", {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       console.log("Fetch response status:", response.status);
 

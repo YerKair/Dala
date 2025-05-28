@@ -22,6 +22,7 @@ import {
   UIManager,
   Modal,
   Switch,
+  PanResponder,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
@@ -84,83 +85,224 @@ interface CarType {
   image: any;
 }
 
-// Car types with base prices per kilometer
-const CAR_TYPES: CarType[] = [
-  {
-    id: "normal",
-    name: "Normal",
-    icon: "car-outline",
-    basePrice: 200, // Price per kilometer
-    minPrice: 1500, // Minimum price
-    time: "3-5",
-    image: require("../../../assets/images/car-normal.png"),
-  },
-  {
-    id: "minivan",
-    name: "Minivan",
-    icon: "car-sport-outline",
-    basePrice: 300, // Price per kilometer
-    minPrice: 2100, // Minimum price
-    time: "5-7",
-    image: require("../../../assets/images/car-minivan.png"),
-  },
-  {
-    id: "joint",
-    name: "Joint trip",
-    icon: "car-sport-outline",
-    basePrice: 150, // Price per kilometer
-    minPrice: 1100, // Minimum price
-    time: "7-10",
-    image: require("../../../assets/images/car-joint.png"),
-  },
-];
-
-// Function to calculate distance between two points
-const calculateDistanceBetweenPoints = (
-  point1: { latitude: number; longitude: number },
-  point2: { latitude: number; longitude: number }
-): number => {
-  if (!point1 || !point2) return 0;
-
-  // Convert degrees to radians
-  const lat1 = (point1.latitude * Math.PI) / 180;
-  const lon1 = (point1.longitude * Math.PI) / 180;
-  const lat2 = (point2.latitude * Math.PI) / 180;
-  const lon2 = (point2.longitude * Math.PI) / 180;
-
-  // Haversine formula
-  const dlon = lon2 - lon1;
-  const dlat = lat2 - lat1;
-  const a =
-    Math.sin(dlat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon / 2) ** 2;
-  const c = 2 * Math.asin(Math.sqrt(a));
-  const r = 6371; // Radius of earth in kilometers
-
-  // Return distance in kilometers
-  return c * r;
-};
-
-// Function to calculate price based on car type and distance
-const calculatePrice = (carTypeId: string, distance: number): number => {
-  // Find selected car type
-  const carType = CAR_TYPES.find((car) => car.id === carTypeId);
-  if (!carType) return 0;
-
-  // Calculate price based on distance and base price
-  const calculatedPrice = Math.round(distance * carType.basePrice);
-
-  // Apply minimum price if calculated price is too low
-  return Math.max(calculatedPrice, carType.minPrice);
-};
-
 export default function TaxiOrderScreen() {
+  // Hooks from libraries
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const { user, token } = useAuth();
+
+  // Car types definition
+  const CAR_TYPES: CarType[] = [
+    {
+      id: "normal",
+      name: t("taxi.carTypes.normal"),
+      icon: "car-outline",
+      basePrice: 200,
+      minPrice: 1500,
+      time: "3-5",
+      image: require("../../../assets/images/car-normal.png"),
+    },
+    {
+      id: "minivan",
+      name: t("taxi.carTypes.minivan"),
+      icon: "car-sport-outline",
+      basePrice: 300,
+      minPrice: 2100,
+      time: "5-7",
+      image: require("../../../assets/images/car-minivan.png"),
+    },
+    {
+      id: "joint",
+      name: t("taxi.carTypes.joint"),
+      icon: "car-sport-outline",
+      basePrice: 150,
+      minPrice: 1100,
+      time: "7-10",
+      image: require("../../../assets/images/car-joint.png"),
+    },
+  ];
+
+  // Refs
   const mapRef = useRef<MapView>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const destinationInputRef = useRef<TextInput>(null);
-  const { user, token } = useAuth();
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const bottomPanelHeight = useRef(new Animated.Value(0)).current;
+  const panelHeight = useRef(new Animated.Value(1)).current;
+
+  // State declarations
+  const [stateRestored, setStateRestored] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [currentView, setCurrentView] = useState<
+    "location" | "cars" | "requests"
+  >("location");
+  const [pickupAddress, setPickupAddress] = useState<Address>({
+    id: "",
+    name: t("taxi.yourLocation"),
+    fullAddress: "",
+    coordinates: {
+      latitude: 43.238949,
+      longitude: 76.889709,
+    },
+    latitude: 43.238949,
+    longitude: 76.889709,
+  });
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  }>({
+    latitude: 43.238949,
+    longitude: 76.889709,
+  });
+  const [destinationAddress, setDestinationAddress] = useState<Address | null>(
+    null
+  );
+  const [destinationInput, setDestinationInput] = useState("");
+  const [searchResults, setSearchResults] = useState<Address[]>([]);
+  const [selectedCar, setSelectedCar] = useState<string | null>(null);
+  const [selectedFare, setSelectedFare] = useState<number>(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isDriver, setIsDriver] = useState(false);
+  const [pendingOrders, setPendingOrders] = useState<TaxiRequestExtended[]>([]);
+  const [showDriverControls, setShowDriverControls] = useState(false);
+  const [showCarSelection, setShowCarSelection] = useState(false);
+  const [selectedCarType, setSelectedCarType] = useState(CAR_TYPES[0].id);
+  const [showAddressSelection, setShowAddressSelection] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isLocating, setIsLocating] = useState(true);
+  const [isSearchingDriver, setIsSearchingDriver] = useState(false);
+  const [searchTimeSeconds, setSearchTimeSeconds] = useState(0);
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 43.238949,
+    longitude: 76.889709,
+    latitudeDelta: 0.02,
+    longitudeDelta: 0.02,
+  });
+  const [tripDistance, setTripDistance] = useState<number>(0);
+  const [carPrices, setCarPrices] = useState<{ [key: string]: number }>({});
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [activeTripId, setActiveTripId] = useState<string | undefined>(
+    undefined
+  );
+  const [isDriverMode, setIsDriverMode] = useState<boolean>(false);
+  const [locationTrackingEnabled, setLocationTrackingEnabled] =
+    useState<boolean>(true);
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+
+  // Function to check and restore trip state
+  const checkAndRestoreTrip = async () => {
+    if (!user || !user.id) return;
+
+    console.log("TaxiScreen mounted - initializing with auth token");
+
+    try {
+      // Check for active trip
+      const hasActiveTrip = await checkUserActiveTrip(user.id.toString());
+
+      if (hasActiveTrip) {
+        console.log(`User ${user.id} has an active trip, restoring state...`);
+
+        // Restore trip state
+        const restored = await restoreTripState(user.id.toString());
+
+        if (restored) {
+          console.log("Trip state restored, redirecting to trip screen");
+          router.replace("/taxi-service/trip");
+          return;
+        }
+      }
+
+      console.log(
+        "No active trip, showing taxi order screen",
+        !globalState.activeTaxiTrip
+      );
+      setStateRestored(true);
+    } catch (error) {
+      console.error("Error checking for active trip:", error);
+      setStateRestored(true);
+    }
+  };
+
+  // Create pan responder for drag gesture
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0 && !isPanelCollapsed) {
+          // Dragging down
+          const newValue = 1 - gestureState.dy / 400;
+          panelHeight.setValue(Math.max(0.1, Math.min(1, newValue)));
+        } else if (gestureState.dy < 0 && isPanelCollapsed) {
+          // Dragging up
+          const newValue = Math.abs(gestureState.dy) / 400;
+          panelHeight.setValue(Math.max(0.1, Math.min(1, newValue)));
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 50 && !isPanelCollapsed) {
+          // Collapse panel
+          Animated.spring(panelHeight, {
+            toValue: 0.1,
+            useNativeDriver: false,
+          }).start();
+          setIsPanelCollapsed(true);
+        } else if (gestureState.dy < -50 && isPanelCollapsed) {
+          // Expand panel
+          Animated.spring(panelHeight, {
+            toValue: 1,
+            useNativeDriver: false,
+          }).start();
+          setIsPanelCollapsed(false);
+        } else {
+          // Return to previous state
+          Animated.spring(panelHeight, {
+            toValue: isPanelCollapsed ? 0.1 : 1,
+            useNativeDriver: false,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  // Helper functions
+  const calculateDistanceBetweenPoints = (
+    point1: { latitude: number; longitude: number },
+    point2: { latitude: number; longitude: number }
+  ): number => {
+    if (!point1 || !point2) return 0;
+
+    // Convert degrees to radians
+    const lat1 = (point1.latitude * Math.PI) / 180;
+    const lon1 = (point1.longitude * Math.PI) / 180;
+    const lat2 = (point2.latitude * Math.PI) / 180;
+    const lon2 = (point2.longitude * Math.PI) / 180;
+
+    // Haversine formula
+    const dlon = lon2 - lon1;
+    const dlat = lat2 - lat1;
+    const a =
+      Math.sin(dlat / 2) ** 2 +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon / 2) ** 2;
+    const c = 2 * Math.asin(Math.sqrt(a));
+    const r = 6371; // Radius of earth in kilometers
+
+    // Return distance in kilometers
+    return c * r;
+  };
+
+  // Function to calculate price based on car type and distance
+  const calculatePrice = (carTypeId: string, distance: number): number => {
+    // Find selected car type
+    const carType = CAR_TYPES.find((car) => car.id === carTypeId);
+    if (!carType) return 0;
+
+    // Calculate price based on distance and base price
+    const calculatedPrice = Math.round(distance * carType.basePrice);
+
+    // Apply minimum price if calculated price is too low
+    return Math.max(calculatedPrice, carType.minPrice);
+  };
 
   // Initialize TaxiService with token immediately when component mounts
   useEffect(() => {
@@ -199,75 +341,6 @@ export default function TaxiOrderScreen() {
       TaxiService.updateTaxiToken();
     }
   }, [token, user]); // Listen for changes to token or user
-
-  // Other state declarations
-  const [isLoading, setIsLoading] = useState(false);
-  const [currentView, setCurrentView] = useState<
-    "location" | "cars" | "requests"
-  >("location");
-  const [pickupAddress, setPickupAddress] = useState<Address>({
-    id: "",
-    name: t("taxi.yourLocation"),
-    fullAddress: "",
-    coordinates: {
-      latitude: 43.238949,
-      longitude: 76.889709,
-    },
-    latitude: 43.238949,
-    longitude: 76.889709,
-  });
-  const [userLocation, setUserLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  }>({
-    latitude: 43.238949,
-    longitude: 76.889709,
-  });
-  const [destinationAddress, setDestinationAddress] = useState<Address | null>(
-    null
-  );
-  const [destinationInput, setDestinationInput] = useState("");
-  const [searchResults, setSearchResults] = useState<Address[]>([]);
-  const [selectedCar, setSelectedCar] = useState<string | null>(null);
-  const [selectedFare, setSelectedFare] = useState<number>(0);
-  const [refreshing, setRefreshing] = useState(false);
-  const [isDriver, setIsDriver] = useState(false);
-  const [pendingOrders, setPendingOrders] = useState<TaxiRequestExtended[]>([]);
-  const [showDriverControls, setShowDriverControls] = useState(false);
-  const [showCarSelection, setShowCarSelection] = useState(false);
-  const [selectedCarType, setSelectedCarType] = useState(CAR_TYPES[0].id);
-  const [showAddressSelection, setShowAddressSelection] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const [isLocating, setIsLocating] = useState(true); // Статус определения местоположения
-  const [isSearchingDriver, setIsSearchingDriver] = useState(false); // Статус поиска водителя
-  const [searchTimeSeconds, setSearchTimeSeconds] = useState(0); // Время поиска водителя в секундах
-  const [mapRegion, setMapRegion] = useState({
-    latitude: 43.238949,
-    longitude: 76.889709,
-    latitudeDelta: 0.02,
-    longitudeDelta: 0.02,
-  });
-  const [tripDistance, setTripDistance] = useState<number>(0);
-  const [carPrices, setCarPrices] = useState<{ [key: string]: number }>({});
-
-  // Keyboard state
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const bottomPanelHeight = useRef(new Animated.Value(0)).current;
-
-  // Add a debounce timeout ref
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Cleanup timers when component unmounts
-  useEffect(() => {
-    return () => {
-      // Clear any active timers
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-        searchTimeoutRef.current = null;
-      }
-    };
-  }, []);
 
   // Check if user has taxi driver role
   useEffect(() => {
@@ -318,7 +391,7 @@ export default function TaxiOrderScreen() {
     const timeAgo = getTimeAgo(request.timestamp);
 
     // Calculate distance between request destination and driver's location
-    const distance = calculateDistance(
+    const distance = calculateDistanceBetweenPoints(
       userLocation || { latitude: 0, longitude: 0 },
       request.pickup.coordinates
     );
@@ -385,25 +458,15 @@ export default function TaxiOrderScreen() {
     const now = Date.now();
     const seconds = Math.floor((now - timestamp) / 1000);
 
-    if (seconds < 60) return `${seconds}${t("taxi.secondsAgo")}`;
-
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}${t("taxi.minutesAgo")}`;
-
-    const hours = Math.floor(minutes / 60);
+    if (seconds < 60) {
+      return `${seconds}${t("taxi.secondsAgo")}`;
+    }
+    if (seconds < 3600) {
+      const minutes = Math.floor(seconds / 60);
+      return `${minutes}${t("taxi.minutesAgo")}`;
+    }
+    const hours = Math.floor(seconds / 3600);
     return `${hours}${t("taxi.hoursAgo")}`;
-  };
-
-  // Helper function to calculate distance between two points
-  const calculateDistance = (
-    point1: { latitude: number; longitude: number },
-    point2: { latitude: number; longitude: number }
-  ): number => {
-    // Simple calculation for demo purposes
-    // In a real app, you would use a proper distance calculation algorithm
-    const latDiff = Math.abs(point1.latitude - point2.latitude);
-    const lngDiff = Math.abs(point1.longitude - point2.longitude);
-    return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff) * 111; // Rough conversion to km
   };
 
   // Очистка данных предыдущих поездок при загрузке экрана
@@ -442,16 +505,6 @@ export default function TaxiOrderScreen() {
     // Get user location
     getUserLocation();
   }, []);
-
-  // Add state for trip ID tracking
-  const [activeTripId, setActiveTripId] = useState<string | undefined>(
-    undefined
-  );
-  const [isDriverMode, setIsDriverMode] = useState<boolean>(false);
-
-  // Add a state for location tracking toggle
-  const [locationTrackingEnabled, setLocationTrackingEnabled] =
-    useState<boolean>(true);
 
   // Update the checkForActiveTrip function to set active trip ID
   const checkForActiveTrip = async () => {
@@ -582,7 +635,7 @@ export default function TaxiOrderScreen() {
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
             {
               headers: {
-                "User-Agent": "DamuTaxiApp/1.0",
+                "User-Agent": "DalaTaxiApp/1.0",
               },
             }
           );
@@ -670,7 +723,7 @@ export default function TaxiOrderScreen() {
         )}&format=json&addressdetails=1&limit=5`,
         {
           headers: {
-            "User-Agent": "DamuTaxiApp/1.0",
+            "User-Agent": "DalaTaxiApp/1.0",
           },
         }
       );
@@ -819,12 +872,10 @@ export default function TaxiOrderScreen() {
           <Image source={carType.image} style={styles.carImage} />
         )}
         <Text style={styles.carTypeName}>
-          {t(`taxi.carTypes.${carType.id}.name`) || carType.name}
+          {t(`taxi.carTypes.${carType.id}`)}
         </Text>
         <Text style={styles.carPrice}>{price} ₸</Text>
-        <Text style={styles.basePricePerKm}>
-          {carType.basePrice} ₸/{"km"}
-        </Text>
+        <Text style={styles.basePricePerKm}>{carType.basePrice} ₸/км</Text>
       </TouchableOpacity>
     );
   };
@@ -832,106 +883,47 @@ export default function TaxiOrderScreen() {
   // Second screen - car selection
   const renderCarSelectionScreen = () => {
     return (
-      <View style={{ flex: 1 }}>
-        <View style={{ height: "60%" }}>
-          <MapView
-            style={{ flex: 1 }}
-            region={mapRegion}
-            onRegionChangeComplete={setMapRegion}
-            ref={mapRef}
-          >
-            {pickupAddress && (
-              <Marker
-                coordinate={{
-                  latitude: pickupAddress.coordinates.latitude,
-                  longitude: pickupAddress.coordinates.longitude,
-                }}
-                title={t("taxi.pickup")}
-                pinColor="#4CAF50"
-              >
-                <View style={styles.currentLocationMarker}>
-                  <View style={styles.currentLocationDot} />
-                </View>
-              </Marker>
-            )}
-            {destinationAddress && (
-              <Marker
-                coordinate={{
-                  latitude: destinationAddress.coordinates.latitude,
-                  longitude: destinationAddress.coordinates.longitude,
-                }}
-                title={t("taxi.destination")}
-                pinColor="#F44336"
-              >
-                <View style={styles.destinationMarker}>
-                  <View style={styles.destinationDot} />
-                </View>
-              </Marker>
-            )}
-            {pickupAddress && destinationAddress && (
-              <Polyline
-                coordinates={[
-                  {
-                    latitude: pickupAddress.coordinates.latitude,
-                    longitude: pickupAddress.coordinates.longitude,
-                  },
-                  {
-                    latitude: destinationAddress.coordinates.latitude,
-                    longitude: destinationAddress.coordinates.longitude,
-                  },
-                ]}
-                strokeColor="#4A5D23"
-                strokeWidth={4}
-              />
-            )}
-          </MapView>
-        </View>
-
-        {/* Кнопка назад - вне контейнера карты, чтобы была поверх всего */}
+      <View style={styles.carSelectionWrapper}>
         <TouchableOpacity
-          style={[
-            styles.backButton,
-            { position: "absolute", top: 50, left: 20, zIndex: 100 },
-          ]}
+          style={styles.backToSearchButton}
           onPress={handleGoBack}
         >
           <Ionicons name="arrow-back" size={24} color="black" />
         </TouchableOpacity>
-
-        <View style={styles.carSelectionPanel}>
-          {tripDistance > 0 && (
-            <View style={styles.distanceInfoContainer}>
-              <Ionicons name="location" size={16} color="#4CAF50" />
-              <Text style={styles.distanceInfoText}>
-                {`${t("taxi.distance")}: ${tripDistance.toFixed(1)} km`}
-              </Text>
-            </View>
-          )}
-
-          <Text style={styles.sectionHeaderText}>{t("taxi.selectCar")}</Text>
-
-          <View style={styles.carTypesContainer}>
-            {CAR_TYPES.map((carType) => renderCarTypeButton(carType))}
+        <Text style={styles.mainTitle}>{t("taxi.selectCar")}</Text>
+        <View style={styles.carTypesList}>
+          {CAR_TYPES.map((carType) => renderCarTypeButton(carType))}
+        </View>
+        <View style={styles.tripDetails}>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>{t("taxi.price")}:</Text>
+            <Text style={styles.detailValue}>{getSelectedCarPrice()} ₸</Text>
           </View>
-
-          <View style={styles.orderSummary}>
-            <View style={styles.priceContainer}>
-              <Text style={styles.priceLabel}>{t("taxi.price")}</Text>
-              <Text style={styles.priceValue}>{getSelectedCarPrice()} ₸</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.orderButtonNew}
-              onPress={handleOrderTaxi}
-              disabled={
-                !pickupAddress || !destinationAddress || !selectedCarType
-              }
-            >
-              <Text style={styles.orderButtonText}>
-                {t("taxi.orderButton") || t("taxi.order")}
-              </Text>
-            </TouchableOpacity>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>{t("taxi.distance")}:</Text>
+            <Text style={styles.detailValue}>{tripDistance.toFixed(1)} km</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>{t("taxi.estTime")}:</Text>
+            <Text style={styles.detailValue}>
+              {selectedCarType
+                ? CAR_TYPES.find((car) => car.id === selectedCarType)?.time
+                : "-"}{" "}
+              min
+            </Text>
           </View>
         </View>
+        <TouchableOpacity
+          style={[
+            styles.actionButton,
+            (!selectedCarType || !destinationAddress) &&
+              styles.actionButtonDisabled,
+          ]}
+          onPress={handleOrderTaxi}
+          disabled={!selectedCarType || !destinationAddress}
+        >
+          <Text style={styles.actionButtonText}>{t("taxi.order")}</Text>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -1026,66 +1018,29 @@ export default function TaxiOrderScreen() {
 
   // Driver mode UI to display available requests
   const renderDriverRequestsScreen = () => (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Available Taxi Requests</Text>
-        <TouchableOpacity
-          style={styles.refreshButton}
-          onPress={refreshOrdersList}
-          disabled={refreshing}
-        >
-          <Ionicons
-            name="refresh"
-            size={24}
-            color="#4A5D23"
-            style={refreshing ? { opacity: 0.5 } : {}}
-          />
-        </TouchableOpacity>
-      </View>
-
-      {refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4A5D23" />
-          <Text style={styles.loadingText}>Refreshing requests...</Text>
-        </View>
-      ) : pendingOrders.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <MaterialIcons name="local-taxi" size={80} color="#E0E0E0" />
-          <Text style={styles.emptyText}>
-            No available requests at the moment
-          </Text>
-          <Text style={styles.emptySubtext}>
-            Pull down to refresh or check back later
-          </Text>
-          <TouchableOpacity
-            style={styles.switchModeButton}
-            onPress={() => setShowDriverControls(false)}
-          >
-            <Text style={styles.switchModeButtonText}>
-              Switch to Passenger Mode
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <ScrollView
-          style={{ flex: 1, width: "100%" }}
-          contentContainerStyle={{ padding: 16, paddingBottom: 30 }}
+    <View style={styles.requestsContainer}>
+      <Text style={styles.mainTitle}>{t("taxi.trip.tripDetails")}</Text>
+      {pendingOrders.length > 0 ? (
+        <FlatList
+          data={pendingOrders}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <RequestItem request={item} onAccept={handleAcceptRequest} />
+          )}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={refreshOrdersList}
-              colors={["#4A5D23"]}
             />
           }
-        >
-          {pendingOrders.map((request) => (
-            <RequestItem
-              key={request.id}
-              request={request}
-              onAccept={handleAcceptRequest}
-            />
-          ))}
-        </ScrollView>
+        />
+      ) : (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>
+            {t("taxi.trip.waitingForRequests")}
+          </Text>
+          <SonarAnimation />
+        </View>
       )}
     </View>
   );
@@ -1167,10 +1122,16 @@ export default function TaxiOrderScreen() {
       globalState.destinationCoordinates = destinationAddress.coordinates;
 
       // Calculate distance between pickup and destination
-      const distance = calculateDistance(
+      const distance = calculateDistanceBetweenPoints(
         pickupAddress.coordinates,
         destinationAddress.coordinates
       );
+
+      // Create route coordinates array
+      const routeCoordinates = [
+        pickupAddress.coordinates,
+        destinationAddress.coordinates,
+      ];
 
       // Create a taxi request using the API service
       if (user) {
@@ -1187,6 +1148,7 @@ export default function TaxiOrderScreen() {
             name: destinationAddress.name,
             coordinates: destinationAddress.coordinates,
           },
+          route: routeCoordinates,
           fare: selectedFare,
           distance_km: distance,
         });
@@ -1200,6 +1162,7 @@ export default function TaxiOrderScreen() {
             destination: destinationAddress.name,
             fare: selectedFare,
             duration: 120,
+            route: routeCoordinates,
           });
 
           // Go to trip screen
@@ -1240,43 +1203,6 @@ export default function TaxiOrderScreen() {
     router.push("/(tabs)/taxi-service/driver");
   };
 
-  // Добавляем стейт для отслеживания восстановления состояния
-  const [stateRestored, setStateRestored] = useState(false);
-
-  // Функция для проверки состояния поездки при загрузке экрана
-  const checkAndRestoreTrip = async () => {
-    if (!user || !user.id) return;
-
-    console.log("TaxiScreen mounted - initializing with auth token");
-
-    try {
-      // Проверяем наличие активной поездки у текущего пользователя
-      const hasActiveTrip = await checkUserActiveTrip(user.id.toString());
-
-      if (hasActiveTrip) {
-        console.log(`User ${user.id} has an active trip, restoring state...`);
-
-        // Восстанавливаем состояние поездки
-        const restored = await restoreTripState(user.id.toString());
-
-        if (restored) {
-          console.log("Trip state restored, redirecting to trip screen");
-          router.replace("/taxi-service/trip");
-          return;
-        }
-      }
-
-      console.log(
-        "No active trip, showing taxi order screen",
-        !globalState.activeTaxiTrip
-      );
-      setStateRestored(true);
-    } catch (error) {
-      console.error("Error checking for active trip:", error);
-      setStateRestored(true);
-    }
-  };
-
   // Проверяем состояние поездки при монтировании компонента
   useEffect(() => {
     checkAndRestoreTrip();
@@ -1292,107 +1218,9 @@ export default function TaxiOrderScreen() {
     );
   }
 
-  // Render the completion view after a trip is completed
-  const renderCompletionView = () => {
-    // Get current trip from TaxiRequest in AsyncStorage or create a placeholder
-    const [currentTrip, setCurrentTrip] = useState<TaxiRequest | null>(null);
-
-    // Load the current trip when the component renders
-    useEffect(() => {
-      const loadTrip = async () => {
-        try {
-          // Try to get active trip from TaxiService
-          const tripData = await TaxiService.getDriverActiveTrip();
-          if (tripData) {
-            setCurrentTrip(tripData);
-          }
-        } catch (error) {
-          console.error("Error loading trip data:", error);
-        }
-      };
-
-      loadTrip();
-    }, []);
-
-    return (
-      <View style={styles.completionContainer}>
-        <View style={styles.completionHeader}>
-          <Text style={styles.completionTitle}>Trip Completed</Text>
-          <Image
-            source={{ uri: "/api/success-icon" }}
-            style={styles.successIcon}
-          />
-        </View>
-
-        <View style={styles.tripSummary}>
-          <Text style={styles.summaryLabel}>From:</Text>
-          <Text style={styles.summaryValue}>
-            {currentTrip?.pickup?.name || "Unknown location"}
-          </Text>
-
-          <Text style={styles.summaryLabel}>To:</Text>
-          <Text style={styles.summaryValue}>
-            {currentTrip?.destination?.name || "Unknown destination"}
-          </Text>
-
-          <Text style={styles.summaryLabel}>Fare:</Text>
-          <Text style={styles.summaryValue}>{currentTrip?.fare || 0} KZT</Text>
-
-          <Text style={styles.summaryLabel}>Driver:</Text>
-          <Text style={styles.summaryValue}>
-            {globalState.tripData.driverName || "Unknown"}
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          style={styles.archiveButton}
-          onPress={async () => {
-            if (currentTrip?.id) {
-              const success = await TaxiService.sendTripToHistory(
-                currentTrip.id
-              );
-              if (success) {
-                Alert.alert("Success", "Trip has been added to your history");
-              } else {
-                console.log(
-                  "Failed to add trip to history, but continuing anyway"
-                );
-              }
-
-              // Reset the state regardless of the API result
-              if (user?.id) {
-                forceResetTripState(user.id.toString());
-              }
-              setCurrentView("location");
-            }
-          }}
-        >
-          <Text style={styles.archiveButtonText}>Archive Trip</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.doneButton}
-          onPress={() => {
-            if (user?.id) {
-              forceResetTripState(user.id.toString());
-            }
-            setCurrentView("location");
-          }}
-        >
-          <Text style={styles.doneButtonText}>Done</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
   // Main component render
   return (
-    <SafeAreaView
-      style={[
-        styles.container,
-        { backgroundColor: "white", paddingTop: 0, paddingBottom: 0 },
-      ]}
-    >
+    <View style={styles.mainContainer}>
       {/* Include the LocationTracker component */}
       <LocationTracker
         isActive={locationTrackingEnabled && !!user}
@@ -1420,244 +1248,287 @@ export default function TaxiOrderScreen() {
             </TouchableOpacity>
           )}
 
-          {showCarSelection ? (
-            renderCarSelectionScreen()
-          ) : (
-            <KeyboardAvoidingView
-              style={styles.container}
-              behavior={Platform.OS === "ios" ? "padding" : "height"}
-              keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
-            >
-              <SafeAreaView style={styles.container}>
-                {/* Map view - reduce height when keyboard is visible */}
-                <View
-                  style={[
-                    styles.mapContainer,
-                    keyboardVisible && { height: "50%" },
-                  ]}
-                >
-                  <MapView
-                    style={styles.map}
-                    region={mapRegion}
-                    onRegionChangeComplete={setMapRegion}
-                    ref={mapRef}
+          <View style={styles.container}>
+            {/* Map view - always visible */}
+            <View style={styles.mapContainer}>
+              <MapView
+                style={styles.map}
+                region={mapRegion}
+                onRegionChangeComplete={setMapRegion}
+                ref={mapRef}
+              >
+                {/* Pickup marker */}
+                {pickupAddress && (
+                  <Marker
+                    coordinate={pickupAddress.coordinates}
+                    title="Your Location"
+                    description={pickupAddress.name}
                   >
-                    {/* Pickup marker */}
-                    {pickupAddress && (
-                      <Marker
-                        coordinate={pickupAddress.coordinates}
-                        title="Your Location"
-                        description={pickupAddress.name}
-                      >
-                        <View style={styles.currentLocationMarker}>
-                          <View style={styles.currentLocationDot} />
-                        </View>
-                      </Marker>
-                    )}
+                    <View style={styles.currentLocationMarker}>
+                      <View style={styles.currentLocationDot} />
+                    </View>
+                  </Marker>
+                )}
 
-                    {/* Destination marker */}
-                    {destinationAddress && (
-                      <Marker
-                        coordinate={destinationAddress.coordinates}
-                        title="Destination"
-                        description={destinationAddress.name}
-                      >
-                        <View style={styles.destinationMarker}>
-                          <View style={styles.destinationDot} />
-                        </View>
-                      </Marker>
-                    )}
+                {/* Destination marker */}
+                {destinationAddress && (
+                  <Marker
+                    coordinate={destinationAddress.coordinates}
+                    title="Destination"
+                    description={destinationAddress.name}
+                  >
+                    <View style={styles.destinationMarker}>
+                      <View style={styles.destinationDot} />
+                    </View>
+                  </Marker>
+                )}
 
-                    {/* Route line between pickup and destination */}
-                    {pickupAddress && destinationAddress && (
-                      <Polyline
-                        coordinates={[
-                          pickupAddress.coordinates,
-                          destinationAddress.coordinates,
-                        ]}
-                        strokeColor="#4A5D23"
-                        strokeWidth={4}
-                      />
-                    )}
-                  </MapView>
+                {/* Route line between pickup and destination */}
+                {pickupAddress && destinationAddress && (
+                  <Polyline
+                    coordinates={[
+                      pickupAddress.coordinates,
+                      destinationAddress.coordinates,
+                    ]}
+                    strokeColor="#4A5D23"
+                    strokeWidth={4}
+                  />
+                )}
+              </MapView>
+            </View>
+
+            {/* Back button */}
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.replace("/(tabs)")}
+            >
+              <Ionicons name="arrow-back" size={24} color="black" />
+            </TouchableOpacity>
+
+            {/* Bottom panels */}
+            {!showCarSelection ? (
+              <Animated.View
+                style={[
+                  styles.bottomPanel,
+                  keyboardVisible && styles.bottomPanelWithKeyboard,
+                  {
+                    height: panelHeight.interpolate({
+                      inputRange: [0.1, 1],
+                      outputRange: ["15%", "60%"],
+                    }),
+                  },
+                ]}
+              >
+                <View {...panResponder.panHandlers}>
+                  <View style={styles.dragIndicator} />
                 </View>
+                <ScrollView
+                  ref={scrollViewRef}
+                  contentContainerStyle={styles.bottomPanelContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  keyboardDismissMode="interactive"
+                >
+                  <Text style={styles.panelTitle}>{t("taxi.taxi")}</Text>
+                  {/* Location inputs */}
+                  <TouchableOpacity
+                    style={styles.locationInput}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      getUserLocation();
+                    }}
+                  >
+                    <View style={styles.inputIconContainer}>
+                      <Ionicons
+                        name="navigate-circle-outline"
+                        size={24}
+                        color="#666"
+                      />
+                    </View>
+                    <Text style={styles.inputText}>
+                      {pickupAddress
+                        ? pickupAddress.name
+                        : t("taxi.yourLocation")}
+                    </Text>
+                  </TouchableOpacity>
 
-                {/* Back button */}
+                  <TouchableOpacity
+                    style={styles.locationInput}
+                    activeOpacity={1}
+                    onPress={() => {
+                      if (destinationInputRef.current) {
+                        destinationInputRef.current.focus();
+                      }
+                    }}
+                  >
+                    <View style={styles.inputIconContainer}>
+                      <Ionicons
+                        name="location-outline"
+                        size={24}
+                        color="#666"
+                      />
+                    </View>
+                    <TextInput
+                      ref={destinationInputRef}
+                      style={styles.inputText}
+                      placeholder={t("taxi.whereToGo")}
+                      placeholderTextColor="#999"
+                      value={destinationInput}
+                      onChangeText={handleDestinationInputChange}
+                      onFocus={() => {
+                        setTimeout(() => {
+                          if (scrollViewRef.current) {
+                            scrollViewRef.current.scrollToEnd({
+                              animated: true,
+                            });
+                          }
+                        }, 100);
+                      }}
+                    />
+                  </TouchableOpacity>
+
+                  {/* Search results */}
+                  {searchResults.length > 0 && (
+                    <ScrollView
+                      style={[
+                        styles.searchResultsContainer,
+                        keyboardVisible &&
+                          styles.searchResultsContainerExpanded,
+                      ]}
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled={true}
+                    >
+                      {searchResults.map((item, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={styles.searchResultItem}
+                          onPress={() => {
+                            handleSelectAddress(item);
+                            Keyboard.dismiss();
+                          }}
+                        >
+                          <Ionicons
+                            name="location-outline"
+                            size={18}
+                            color="#666"
+                          />
+                          <Text style={styles.searchResultText}>
+                            {item.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+
+                  {/* Order button */}
+                  <View
+                    style={[
+                      styles.actionButtonContainer,
+                      keyboardVisible && { marginTop: 16 },
+                    ]}
+                  >
+                    <TouchableOpacity
+                      style={[
+                        styles.actionButton,
+                        !destinationAddress && styles.actionButtonDisabled,
+                      ]}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        handleInitialOrder();
+                      }}
+                      disabled={!destinationAddress}
+                    >
+                      <Text style={styles.actionButtonText}>
+                        {t("taxi.order")}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Add padding when keyboard is visible */}
+                  {keyboardVisible && (
+                    <View style={{ height: keyboardHeight - 64 }} />
+                  )}
+                </ScrollView>
+              </Animated.View>
+            ) : (
+              <View style={styles.carSelectionWrapper}>
                 <TouchableOpacity
-                  style={styles.backButton}
-                  onPress={() => router.replace("/(tabs)")}
+                  style={styles.backToSearchButton}
+                  onPress={handleGoBack}
                 >
                   <Ionicons name="arrow-back" size={24} color="black" />
                 </TouchableOpacity>
-
-                {/* Bottom panel - adjust position based on keyboard */}
-                <Animated.View
-                  style={[
-                    styles.bottomPanel,
-                    keyboardVisible && styles.bottomPanelWithKeyboard,
-                  ]}
-                >
-                  <ScrollView
-                    ref={scrollViewRef}
-                    contentContainerStyle={styles.bottomPanelContent}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
-                  >
-                    <View style={styles.dragIndicator} />
-                    <Text style={styles.panelTitle}>{t("taxi.taxi")}</Text>
-
-                    {/* Location inputs */}
-                    <TouchableOpacity
-                      style={styles.locationInput}
-                      onPress={() => {
-                        Keyboard.dismiss();
-                        getUserLocation();
-                      }}
-                    >
-                      <View style={styles.inputIconContainer}>
-                        <Ionicons
-                          name="navigate-circle-outline"
-                          size={24}
-                          color="#666"
-                        />
-                      </View>
-                      <Text style={styles.inputText}>
-                        {pickupAddress
-                          ? pickupAddress.name
-                          : t("taxi.yourLocation")}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.locationInput}
-                      activeOpacity={1}
-                      onPress={() => {
-                        if (destinationInputRef.current) {
-                          destinationInputRef.current.focus();
-                        }
-                      }}
-                    >
-                      <View style={styles.inputIconContainer}>
-                        <Ionicons
-                          name="location-outline"
-                          size={24}
-                          color="#666"
-                        />
-                      </View>
-                      <TextInput
-                        ref={destinationInputRef}
-                        style={styles.inputText}
-                        placeholder={t("taxi.whereToGo")}
-                        placeholderTextColor="#999"
-                        value={destinationInput}
-                        onChangeText={handleDestinationInputChange}
-                        onFocus={() => {
-                          // Scroll to this input when focused
-                          setTimeout(() => {
-                            if (scrollViewRef.current) {
-                              scrollViewRef.current.scrollToEnd({
-                                animated: true,
-                              });
-                            }
-                          }, 100);
-                        }}
-                      />
-                    </TouchableOpacity>
-
-                    {/* Search results with scrollable container */}
-                    {searchResults.length > 0 && (
-                      <ScrollView
-                        style={[
-                          styles.searchResultsContainer,
-                          keyboardVisible &&
-                            styles.searchResultsContainerExpanded,
-                        ]}
-                        keyboardShouldPersistTaps="handled"
-                        nestedScrollEnabled={true}
-                      >
-                        {searchResults.map((item, index) => (
-                          <TouchableOpacity
-                            key={index}
-                            style={styles.searchResultItem}
-                            onPress={() => {
-                              handleSelectAddress(item);
-                              Keyboard.dismiss();
-                            }}
-                          >
-                            <Ionicons
-                              name="location-outline"
-                              size={18}
-                              color="#666"
-                            />
-                            <Text style={styles.searchResultText}>
-                              {item.name}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    )}
-
-                    {/* Order button - ensure it's always visible */}
-                    <View
-                      style={[
-                        styles.orderButtonContainer,
-                        keyboardVisible && { marginTop: 16 },
-                      ]}
-                    >
-                      <TouchableOpacity
-                        style={[
-                          styles.orderButton,
-                          !destinationAddress && styles.orderButtonDisabled,
-                        ]}
-                        onPress={() => {
-                          Keyboard.dismiss();
-                          handleInitialOrder();
-                        }}
-                        disabled={!destinationAddress}
-                      >
-                        <Text style={styles.orderButtonText}>
-                          {t("taxi.order")}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Add padding when keyboard is visible to ensure everything is accessible */}
-                    {keyboardVisible && (
-                      <View style={{ height: keyboardHeight - 64 }} />
-                    )}
-                  </ScrollView>
-                </Animated.View>
-
-                {/* Loading indicator */}
-                {isLoading && (
-                  <View style={styles.loadingOverlay}>
-                    <ActivityIndicator size="large" color="#000" />
+                <Text style={styles.mainTitle}>{t("taxi.selectCar")}</Text>
+                <View style={styles.carTypesList}>
+                  {CAR_TYPES.map((carType) => renderCarTypeButton(carType))}
+                </View>
+                <View style={styles.tripDetails}>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>{t("taxi.price")}:</Text>
+                    <Text style={styles.detailValue}>
+                      {getSelectedCarPrice()} ₸
+                    </Text>
                   </View>
-                )}
-              </SafeAreaView>
-            </KeyboardAvoidingView>
-          )}
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>
+                      {t("taxi.distance")}:
+                    </Text>
+                    <Text style={styles.detailValue}>
+                      {tripDistance.toFixed(1)} km
+                    </Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>{t("taxi.estTime")}:</Text>
+                    <Text style={styles.detailValue}>
+                      {selectedCarType
+                        ? CAR_TYPES.find((car) => car.id === selectedCarType)
+                            ?.time
+                        : "-"}{" "}
+                      min
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.actionButton,
+                    (!selectedCarType || !destinationAddress) &&
+                      styles.actionButtonDisabled,
+                  ]}
+                  onPress={handleOrderTaxi}
+                  disabled={!selectedCarType || !destinationAddress}
+                >
+                  <Text style={styles.actionButtonText}>{t("taxi.order")}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </>
       )}
 
+      {/* Loading overlay */}
       {isLoading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#4A5D23" />
           <Text style={styles.loadingText}>Processing your request...</Text>
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  mainContainer: {
+    flex: 1,
+  },
   container: {
     flex: 1,
-    backgroundColor: "#fff",
   },
   mapContainer: {
-    height: "60%",
-    width: "100%",
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
@@ -1666,24 +1537,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 50,
     left: 20,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "white",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 10,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
+    zIndex: 100,
   },
   bottomPanel: {
     position: "absolute",
@@ -1693,7 +1547,6 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: "60%",
     ...Platform.select({
       ios: {
         shadowColor: "#000",
@@ -1707,7 +1560,7 @@ const styles = StyleSheet.create({
     }),
   },
   bottomPanelWithKeyboard: {
-    maxHeight: "85%", // When keyboard is visible, allow panel to take more space
+    maxHeight: "100%",
     bottom: 0,
   },
   bottomPanelContent: {
@@ -1721,7 +1574,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#E0E0E0",
     borderRadius: 2,
     alignSelf: "center",
-    marginBottom: 16,
+    marginVertical: 12,
   },
   panelTitle: {
     fontSize: 24,
@@ -1751,7 +1604,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginTop: 4,
     marginBottom: 16,
-    maxHeight: 150,
+    maxHeight: Platform.OS === "ios" ? 200 : 250,
     ...Platform.select({
       ios: {
         shadowColor: "#000",
@@ -1765,7 +1618,7 @@ const styles = StyleSheet.create({
     }),
   },
   searchResultsContainerExpanded: {
-    maxHeight: 200, // More space for results when keyboard is visible
+    maxHeight: Platform.OS === "ios" ? 300 : 350,
   },
   searchResultItem: {
     flexDirection: "row",
@@ -1779,58 +1632,25 @@ const styles = StyleSheet.create({
     color: "#333",
     marginLeft: 10,
   },
-  orderButtonContainer: {
+  actionButtonContainer: {
     width: "100%",
     marginTop: 8,
   },
-  orderButton: {
+  actionButton: {
     backgroundColor: "#212121",
     borderRadius: 100,
     height: 56,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 12,
+    width: "100%",
   },
-  orderButtonDisabled: {
+  actionButtonDisabled: {
     opacity: 0.6,
   },
-  orderButtonText: {
+  actionButtonText: {
     color: "white",
     fontSize: 18,
     fontWeight: "600",
-  },
-  carOptionsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  carOption: {
-    width: (width - 72) / 3,
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 12,
-    alignItems: "center",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  carOptionSelected: {
-    backgroundColor: "#F5F5F5",
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-  },
-  carTypeText: {
-    fontSize: 14,
-    fontWeight: "500",
-    marginBottom: 4,
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1838,6 +1658,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     zIndex: 20,
+  },
+  loadingText: {
+    color: "#4A5D23",
+    fontSize: 18,
+    fontWeight: "bold",
+    marginTop: 20,
   },
   currentLocationMarker: {
     width: 20,
@@ -1871,70 +1697,23 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: "#F44336",
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 10,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginLeft: 10,
-  },
-  refreshButton: {
-    padding: 8,
-  },
-  loadingContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 32,
+    backgroundColor: "#fff",
   },
   emptyText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-    marginTop: 16,
-    textAlign: "center",
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: "#888",
-    marginTop: 8,
-    textAlign: "center",
-  },
-  switchModeButton: {
-    marginTop: 24,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    backgroundColor: "#E0E0E0",
-    borderRadius: 8,
-  },
-  switchModeButtonText: {
-    color: "#333",
-    fontWeight: "bold",
-  },
-  loadingText: {
-    color: "#4A5D23",
-    fontSize: 18,
-    fontWeight: "bold",
-    marginTop: 20,
+    fontSize: 16,
+    color: "#666",
+    marginBottom: 20,
   },
   driverModeFloatingButton: {
     position: "absolute",
     top: 90,
     right: 20,
-    zIndex: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#333",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    backgroundColor: "#4A5D23",
+    padding: 12,
     borderRadius: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -1947,149 +1726,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "white",
     fontWeight: "500",
-  },
-  carTypeButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 8,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  selectedCarTypeButton: {
-    backgroundColor: "#4C6A2E",
-  },
-  carTypeInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  selectedCarTypeName: {
-    color: "#FFFFFF",
-  },
-  carTypeDetails: {
-    fontSize: 14,
-    color: "#888888",
-  },
-  selectedCarTypeDetails: {
-    color: "#FFFFFF",
-    opacity: 0.8,
-  },
-  carTypePrice: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333333",
-  },
-  selectedCarTypePrice: {
-    color: "#FFFFFF",
-  },
-  orderSummary: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 16,
-    marginBottom: 16,
-    width: "100%",
-  },
-  priceContainer: {
-    flex: 1,
-  },
-  priceLabel: {
-    fontSize: 14,
-    color: "#888888",
-    marginBottom: 4,
-  },
-  priceValue: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333333",
-  },
-  orderButtonNew: {
-    backgroundColor: "#212121",
-    width: 160,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  carTypesContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 20,
-    width: "100%",
-  },
-  distanceInfoContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F5F5F5",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-    justifyContent: "center",
-    width: "100%",
-  },
-  distanceInfoText: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#333",
-    marginLeft: 8,
-  },
-  loadingButton: {
-    opacity: 0.7,
-  },
-  carPriceContainer: {
-    alignItems: "flex-end",
-  },
-  basePricePerKm: {
-    fontSize: 12,
-    color: "#888888",
-    marginTop: 4,
-  },
-  selectedBasePricePerKm: {
-    color: "#FFFFFF",
-    opacity: 0.8,
-  },
-  carSelectionPanel: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "white",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    paddingBottom: 36,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: -3,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4.65,
-    elevation: 6,
-  },
-  carSelectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 20,
-    color: "#000",
-  },
-  carCardsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: "100%",
-    marginBottom: 30,
   },
   carCard: {
     width: "30%",
@@ -2122,65 +1758,82 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#333",
   },
-  sectionHeaderText: {
+  basePricePerKm: {
+    fontSize: 12,
+    color: "#888888",
+    marginTop: 4,
+  },
+  carSelectionWrapper: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "white",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingTop: 40,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: -3,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4.65,
+    elevation: 6,
+    maxHeight: "50%",
+  },
+  mainTitle: {
     fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 20,
+    color: "#000",
+  },
+  carTypesList: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 20,
+  },
+  tripDetails: {
+    marginBottom: 20,
+  },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: "#888",
+  },
+  detailValue: {
+    fontSize: 16,
     fontWeight: "bold",
-    marginBottom: 15,
     color: "#333",
   },
-  completionContainer: {
+  requestsContainer: {
     flex: 1,
     backgroundColor: "#fff",
     padding: 20,
   },
-  completionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  completionTitle: {
-    fontSize: 24,
+  driverRequestsTitle: {
+    fontSize: 18,
     fontWeight: "bold",
-    marginRight: 10,
-  },
-  successIcon: {
-    width: 40,
-    height: 40,
-  },
-  tripSummary: {
-    marginBottom: 20,
-  },
-  summaryLabel: {
-    fontSize: 16,
-    fontWeight: "bold",
+    marginBottom: 10,
     color: "#333",
-    marginBottom: 4,
   },
-  summaryValue: {
-    fontSize: 14,
-    color: "#666",
+  backToSearchButton: {
+    position: "absolute",
+    top: 20,
+    left: 20,
+    zIndex: 1,
   },
-  archiveButton: {
-    backgroundColor: "#4CAF50",
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: "center",
-    marginTop: 20,
-  },
-  archiveButtonText: {
-    color: "white",
-    fontWeight: "bold",
-  },
-  doneButton: {
-    backgroundColor: "#E0E0E0",
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: "center",
-    marginTop: 20,
-  },
-  doneButtonText: {
-    color: "#333",
-    fontWeight: "bold",
+  carSelectionContent: {
+    width: "100%",
+    marginBottom: 20,
   },
 });
 

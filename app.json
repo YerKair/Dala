@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Damu",
-    "slug": "Damu",
+    "name": "Dala",
+    "slug": "Dala",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,13 +10,31 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.Damu"
+      "bundleIdentifier": "com.anonymous.Dala",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "We need your location to find taxis near you and provide accurate pickup service.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location to track your taxi ride and provide accurate service even when the app is in the background.",
+        "NSLocationAlwaysUsageDescription": "We need your location to track your taxi ride and provide accurate service even when the app is in the background."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "package": "com.anonymous.Dala"
     },
     "web": {
       "bundler": "metro",
@@ -32,6 +50,14 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Dala to use your location to find nearby taxis and track your ride.",
+          "locationAlwaysPermission": "Allow Dala to use your location in the background for ride tracking.",
+          "locationWhenInUsePermission": "Allow Dala to use your location to find nearby taxis."
         }
       ]
     ],

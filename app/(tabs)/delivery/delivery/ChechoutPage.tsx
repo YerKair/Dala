@@ -1026,7 +1026,7 @@ export default function CheckoutPage() {
         )}&format=json&addressdetails=1&limit=5`,
         {
           headers: {
-            "User-Agent": "DamuDeliveryApp/1.0",
+            "User-Agent": "DalaDeliveryApp/1.0",
           },
         }
       );

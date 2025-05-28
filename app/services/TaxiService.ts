@@ -226,6 +226,10 @@ export class TaxiService {
         longitude: number;
       };
     };
+    route?: {
+      latitude: number;
+      longitude: number;
+    }[];
     fare: number;
     distance_km?: number;
     tariff_id?: number;
@@ -1329,33 +1333,180 @@ export class TaxiService {
 
       // Build query parameters for GET request
       const params = new URLSearchParams({
-        trip_id: tripId,
+        trip_id: tripId.toString(), // Ensure tripId is a string
       });
 
-      // Выполняем запрос на отмену поездки с GET методом
-      const response = await fetch(
-        `${this.API_URL}/trips/cancel?${params.toString()}`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeader,
-          },
-        }
-      );
+      // Try to cancel via API first
+      try {
+        const response = await fetch(
+          `${this.API_URL}/trips/cancel?${params.toString()}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              ...authHeader,
+            },
+          }
+        );
 
-      if (response.ok) {
-        console.log("Trip successfully cancelled");
-        return true;
-      } else {
-        console.log("Failed to cancel trip via API:", response.status);
-        // Возвращаем true, чтобы локальная отмена работала даже при проблемах с API
+        if (!response.ok) {
+          console.log("API cancel failed:", response.status);
+          // Continue with local cancellation even if API fails
+        } else {
+          console.log("Trip successfully cancelled via API");
+        }
+      } catch (apiError) {
+        console.error("API cancel error:", apiError);
+        // Continue with local cancellation
+      }
+
+      // Always perform local cancellation
+      console.log("Performing local cancellation");
+
+      // Update trip status locally
+      await this.updateTripStatus(tripId, "CANCELLED");
+
+      // Clear active trip from storage and get trip data
+      let customerId: string | undefined;
+      let driverId: string | undefined;
+
+      const requestsJson = await AsyncStorage.getItem("taxiRequests");
+      if (!requestsJson) {
+        console.log("No local trips found, resetting state");
+        // Reset global state
+        globalState.activeTaxiTrip = false;
+        globalState.tripData = {
+          isActive: false,
+          startTime: null,
+          endTime: null,
+          tripDuration: 120,
+          driverId: null,
+          driverName: null,
+          origin: null,
+          destination: null,
+          fare: null,
+          status: "cancelled",
+          driverLocation: null,
+          customerLocation: null,
+          lastLocationUpdate: null,
+          estimatedArrival: null,
+        };
+        globalState.pickupCoordinates = null;
+        globalState.destinationCoordinates = null;
+        globalState.needsNewOrder = true;
+        globalState.isSearchingDriver = false;
+        globalState.driverFound = false;
+        globalState.driverLocation = null;
+        globalState.customerLocation = null;
+
         return true;
       }
+
+      const requests: TaxiRequest[] = JSON.parse(requestsJson);
+      const tripToCancel = requests.find((req) => req.id === tripId);
+
+      if (!tripToCancel) {
+        console.log("Trip not found locally, resetting state");
+        // Reset global state
+        globalState.activeTaxiTrip = false;
+        globalState.tripData = {
+          isActive: false,
+          startTime: null,
+          endTime: null,
+          tripDuration: 120,
+          driverId: null,
+          driverName: null,
+          origin: null,
+          destination: null,
+          fare: null,
+          status: "cancelled",
+          driverLocation: null,
+          customerLocation: null,
+          lastLocationUpdate: null,
+          estimatedArrival: null,
+        };
+        globalState.pickupCoordinates = null;
+        globalState.destinationCoordinates = null;
+        globalState.needsNewOrder = true;
+        globalState.isSearchingDriver = false;
+        globalState.driverFound = false;
+        globalState.driverLocation = null;
+        globalState.customerLocation = null;
+
+        return true;
+      }
+
+      // Store IDs for later use
+      customerId = tripToCancel.customer.id.toString();
+      driverId = tripToCancel.driverId || "unknown";
+
+      // Clear user data
+      const keysToRemove = [
+        `active_trip_${customerId}`,
+        `user_active_request_${customerId}`,
+        `trip_state_${customerId}`,
+        `driver_location_${customerId}`,
+        `customer_location_${customerId}`,
+        `trip_events_${customerId}`,
+      ];
+      await AsyncStorage.multiRemove(keysToRemove);
+
+      // Clear driver data
+      if (driverId && driverId !== "unknown") {
+        await AsyncStorage.removeItem(`driver_active_trip_${driverId}`);
+      }
+
+      // Update requests list
+      const updatedRequests = requests.filter(
+        (req) =>
+          req.id !== tripId ||
+          (req.status !== "pending" && req.status !== "accepted")
+      );
+      await AsyncStorage.setItem(
+        "taxiRequests",
+        JSON.stringify(updatedRequests)
+      );
+
+      // Reset global state
+      globalState.activeTaxiTrip = false;
+      globalState.tripData = {
+        isActive: false,
+        startTime: null,
+        endTime: null,
+        tripDuration: 120,
+        driverId: null,
+        driverName: null,
+        origin: null,
+        destination: null,
+        fare: null,
+        status: "cancelled",
+        driverLocation: null,
+        customerLocation: null,
+        lastLocationUpdate: null,
+        estimatedArrival: null,
+      };
+      globalState.pickupCoordinates = null;
+      globalState.destinationCoordinates = null;
+      globalState.needsNewOrder = true;
+      globalState.isSearchingDriver = false;
+      globalState.driverFound = false;
+      globalState.driverLocation = null;
+      globalState.customerLocation = null;
+
+      // Broadcast cancellation event
+      await this.broadcastTripEvent({
+        type: "trip_cancelled",
+        tripId: tripId,
+        driverId: driverId,
+        driverName: "Unknown Driver",
+        customerId: customerId,
+        timestamp: Date.now(),
+      });
+
+      return true;
     } catch (error) {
       console.error("Error in cancelTrip:", error);
-      // Возвращаем true, чтобы локальная отмена работала даже при ошибках
-      return true;
+      return false;
     }
   }
 
@@ -1752,6 +1903,131 @@ export class TaxiService {
     } catch (error) {
       console.error("Error in sendTripToHistory:", error);
       return false;
+    }
+  }
+
+  // Get the active trip for the current user
+  static async getUserActiveTrip(): Promise<TaxiRequest | null> {
+    try {
+      // Get auth token and user info
+      const token = await getAuthToken();
+      if (!token) {
+        console.log("No auth token for getting user active trip");
+        return null;
+      }
+
+      let userId: string | null = null;
+
+      // Try to get user ID from AsyncStorage
+      const userJson = await AsyncStorage.getItem("user");
+      if (userJson) {
+        const user = JSON.parse(userJson);
+        if (user && user.id) {
+          userId = user.id.toString();
+        }
+      }
+
+      if (!userId) {
+        console.log("No user ID found");
+        return null;
+      }
+
+      console.log(`Checking active trip for user ${userId}`);
+
+      // First try to get from API
+      try {
+        const response = await fetch(`${this.API_URL}/trips/active`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const tripData = await response.json();
+          if (tripData) {
+            console.log("Found active trip in API:", tripData);
+            return {
+              id: tripData.id.toString(),
+              customer: {
+                id: tripData.user_id,
+                name: tripData.user_name || "Customer",
+              },
+              pickup: {
+                name: tripData.from_address,
+                coordinates: tripData.pickup_coordinates || {
+                  latitude: 0,
+                  longitude: 0,
+                },
+              },
+              destination: {
+                name: tripData.to_address,
+                coordinates: tripData.destination_coordinates || {
+                  latitude: 0,
+                  longitude: 0,
+                },
+              },
+              fare: tripData.price,
+              timestamp: new Date(tripData.created_at).getTime(),
+              status: this.convertApiStatus(tripData.status),
+              driverId: tripData.driver_id,
+              driver: tripData.driver
+                ? {
+                    id: tripData.driver.id.toString(),
+                    name: tripData.driver.name || "Unknown Driver",
+                    photo: tripData.driver.photo || undefined,
+                    rating:
+                      typeof tripData.driver.rating === "number"
+                        ? tripData.driver.rating
+                        : undefined,
+                    car: tripData.driver.car || undefined,
+                    licensePlate: tripData.driver.license_plate || undefined,
+                  }
+                : undefined,
+            };
+          }
+        }
+      } catch (apiError) {
+        console.log(
+          "Error fetching from API, falling back to local storage:",
+          apiError
+        );
+      }
+
+      // If no trip found in API, check local storage
+      const userRequestKey = `user_active_request_${userId}`;
+      const tripJson = await AsyncStorage.getItem(userRequestKey);
+
+      if (tripJson) {
+        const trip = JSON.parse(tripJson);
+        console.log(`Found active trip in local storage: ${trip.id}`);
+        return trip;
+      }
+
+      // If still no trip found, check main requests storage
+      const requestsJson = await AsyncStorage.getItem("taxiRequests");
+      if (requestsJson) {
+        const requests: TaxiRequest[] = JSON.parse(requestsJson);
+        const userTrip = requests.find(
+          (req) =>
+            req.customer.id.toString() === userId &&
+            (req.status === "accepted" || req.status === "pending")
+        );
+
+        if (userTrip) {
+          console.log(`Found active trip in main storage: ${userTrip.id}`);
+          // Save it to user's active request for future reference
+          await AsyncStorage.setItem(userRequestKey, JSON.stringify(userTrip));
+          return userTrip;
+        }
+      }
+
+      console.log("No active trip found for user");
+      return null;
+    } catch (error) {
+      console.error("Error in getUserActiveTrip:", error);
+      return null;
     }
   }
 }
