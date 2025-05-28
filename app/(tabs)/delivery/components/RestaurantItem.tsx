@@ -51,7 +51,7 @@ const RestaurantItem: React.FC<RestaurantItemProps> = ({
           // Проверяем, полный ли это URL или относительный путь
           const imageUrl = restaurant.image_path.startsWith("http")
             ? restaurant.image_path
-            : `http://192.168.0.104:8000${restaurant.image_path}`; // Добавляем домен, если путь относительный
+            : `http://192.168.0.109:8000${restaurant.image_path}`; // Добавляем домен, если путь относительный
 
           setImage(imageUrl);
 

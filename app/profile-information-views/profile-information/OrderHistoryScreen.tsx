@@ -205,7 +205,7 @@ export default function OrderHistoryScreen() {
               source={{
                 uri: item.driver.avatar?.startsWith("http")
                   ? item.driver.avatar
-                  : `http://192.168.0.104:8000${item.driver.avatar}`,
+                  : `http://192.168.0.109:8000${item.driver.avatar}`,
               }}
               style={styles.driverAvatar}
               defaultSource={require("@/assets/images/driver-placeholder.jpg")}

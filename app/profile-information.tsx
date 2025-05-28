@@ -319,7 +319,7 @@ export default function ProfileInformationScreen() {
           try {
             // Отправляем запрос на сервер для logout
             const response = await fetch(
-              "http://192.168.0.104:8000/api/logout",
+              "http://192.168.0.109:8000/api/logout",
               {
                 method: "POST",
                 headers: {

@@ -118,7 +118,7 @@ export default function EditPaymentMethodScreen() {
       try {
         const token = await AsyncStorage.getItem("token");
         const response = await fetch(
-          `http://192.168.0.104:8000/api/credit-cards/${cardId}`,
+          `http://192.168.0.109:8000/api/credit-cards/${cardId}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -299,7 +299,7 @@ export default function EditPaymentMethodScreen() {
 
       // Send PUT request to update card
       const response = await fetch(
-        `http://192.168.0.104:8000/api/credit-cards/${cardId}`,
+        `http://192.168.0.109:8000/api/credit-cards/${cardId}`,
         {
           method: "PUT",
           headers: {

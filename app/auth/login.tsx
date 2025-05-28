@@ -63,7 +63,7 @@ const LoginScreen: React.FC = () => {
 
     try {
       // Прямой запрос к API без абстракций - для отладки
-      const response = await fetch("http://192.168.0.104:8000/api/login", {
+      const response = await fetch("http://192.168.0.109:8000/api/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -116,52 +116,6 @@ const LoginScreen: React.FC = () => {
       setErrorMessage(t("networkError"));
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Handle demo login
-  const handleDemoLogin = async () => {
-    setLoading(true);
-    setErrorMessage(null);
-
-    try {
-      // Create a demo user with taxi driver role
-      const demoUser = {
-        id: 9999,
-        name: "Demo Driver",
-        email: "demo@driver.com",
-        phone: "+77771234567",
-        email_verified_at: null,
-        role: "customer,driver", // Include both customer and driver roles
-        avatar: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      // Generate a demo token
-      const demoToken = "demo_token_" + Math.random().toString(36).substring(2);
-
-      // Save demo user to AsyncStorage directly to ensure it's stored
-      await AsyncStorage.setItem("userData", JSON.stringify(demoUser));
-      await AsyncStorage.setItem("userToken", demoToken);
-
-      // Call login method to update the context
-      const success = await login(demoUser, demoToken);
-
-      if (success) {
-        setLoading(false);
-        Alert.alert(t("demoLoginSuccess"), t("demoLoginSuccessMessage"), [
-          { text: "OK" },
-        ]);
-        router.replace("/(tabs)");
-      } else {
-        setLoading(false);
-        setErrorMessage(t("demoAccountCreationFailed"));
-      }
-    } catch (error) {
-      console.error("Error during demo login:", error);
-      setLoading(false);
-      setErrorMessage(t("unexpectedError"));
     }
   };
 
@@ -224,29 +178,20 @@ const LoginScreen: React.FC = () => {
                 />
               </TouchableOpacity>
             </View>
+
+            <TouchableOpacity
+              style={styles.nextButton}
+              onPress={handleLogin}
+              disabled={loading}
+              testID="loginButton"
+            >
+              {loading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.nextButtonText}>{t("next")}</Text>
+              )}
+            </TouchableOpacity>
           </View>
-
-          <TouchableOpacity
-            style={styles.nextButton}
-            onPress={handleLogin}
-            disabled={loading}
-            testID="loginButton"
-          >
-            {loading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text style={styles.nextButtonText}>{t("next")}</Text>
-            )}
-          </TouchableOpacity>
-
-          {/* Demo login button */}
-          <TouchableOpacity
-            style={[styles.demoButton]}
-            onPress={handleDemoLogin}
-            disabled={loading}
-          >
-            <Text style={styles.demoButtonText}>{t("loginAsDemoDriver")}</Text>
-          </TouchableOpacity>
         </View>
       </View>
     </SafeAreaView>
@@ -376,18 +321,6 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "bold",
-  },
-  demoButton: {
-    backgroundColor: "#FFB74D",
-    marginTop: 12,
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  demoButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
   },
 });
 

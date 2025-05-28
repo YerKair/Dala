@@ -71,7 +71,7 @@ const StoreItem = ({ item, onEdit, onDelete }: StoreItemProps) => {
           // Проверяем, полный ли это URL или относительный путь
           const imageUrl = item.image_path.startsWith("http")
             ? item.image_path
-            : `http://192.168.0.104:8000${item.image_path}`; // Добавляем домен, если путь относительный
+            : `http://192.168.0.109:8000${item.image_path}`; // Добавляем домен, если путь относительный
 
           setItemImage(imageUrl);
 
@@ -352,14 +352,14 @@ export default function AdminPage() {
         // Check if this is already a server URL and not a local image
         if (
           storeImage.startsWith("http") &&
-          storeImage.includes("192.168.0.104:8000")
+          storeImage.includes("192.168.0.109:8000")
         ) {
           console.log(
             "[DEBUG] Используем существующий URL сервера:",
             storeImage
           );
           // Extract the path from the URL
-          imagePath = storeImage.replace("http://192.168.0.104:8000", "");
+          imagePath = storeImage.replace("http://192.168.0.109:8000", "");
         } else {
           // Try to upload the image to server
           try {
@@ -380,7 +380,7 @@ export default function AdminPage() {
             );
 
             const imageResponse = await fetch(
-              "http://192.168.0.104:8000/api/upload-image",
+              "http://192.168.0.109:8000/api/upload-image",
               {
                 method: "POST",
                 headers: {
@@ -452,11 +452,11 @@ export default function AdminPage() {
       );
 
       // Different logic for create vs update
-      let apiUrl = "http://192.168.0.104:8000/api/restaurants";
+      let apiUrl = "http://192.168.0.109:8000/api/restaurants";
       let method = "POST";
 
       if (editingStore) {
-        apiUrl = `http://192.168.0.104:8000/api/restaurants/${editingStore.id}`;
+        apiUrl = `http://192.168.0.109:8000/api/restaurants/${editingStore.id}`;
         method = "PUT";
       }
 
@@ -619,7 +619,7 @@ export default function AdminPage() {
 
             // Call API to delete
             const response = await fetch(
-              `http://192.168.0.104:8000/api/restaurants/${id}`,
+              `http://192.168.0.109:8000/api/restaurants/${id}`,
               {
                 method: "DELETE",
                 headers: {

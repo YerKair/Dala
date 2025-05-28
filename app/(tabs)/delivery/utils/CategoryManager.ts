@@ -12,7 +12,7 @@ const MAX_IMAGE_WIDTH = 800;
 const MAX_IMAGE_HEIGHT = 800;
 
 // API Base URL
-const API_BASE_URL = "http://192.168.0.104:8000/api";
+const API_BASE_URL = "http://192.168.0.109:8000/api";
 
 // Function to request permissions
 export const requestPermissions = async () => {

@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios, { AxiosError } from "axios";
 import { router } from "expo-router";
 
-const API_BASE_URL = "http://192.168.0.104:8000/api";
+const API_BASE_URL = "http://192.168.0.109:8000/api";
 
 // Улучшенное логирование
 const Logger = {

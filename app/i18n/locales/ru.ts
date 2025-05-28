@@ -206,7 +206,7 @@ export default {
   taxi: {
     taxi: "Такси",
     yourLocation: "Ваше местоположение",
-    whereToGo: "Куда поедем?",
+    whereToGo: "Куда едем?",
     order: "Заказать",
     selectCar: "Выберите машину",
     price: "Цена",
@@ -217,15 +217,14 @@ export default {
     hoursAgo: "ч. назад",
     anonymousUser: "Анонимный пользователь",
     acceptRequest: "Принять заказ",
-    leaveActiveTrip:
-      "У вас есть активная поездка. Вы уверены, что хотите выйти?",
+    leaveActiveTrip: "У вас есть активная поездка. Уверены, что хотите выйти?",
     carTypes: {
       normal: "Обычный",
       minivan: "Минивэн",
       joint: "Совместная поездка",
     },
     trip: {
-      driverArrivalTime: "Водитель будет через {{time}} минут",
+      driverArrivalTime: "Водитель прибудет через {{time}} минут",
       searchingDriver: "Поиск водителя...",
       driverInfo: "Информация о водителе",
       priceOfTrip: "Стоимость поездки:",
@@ -237,7 +236,7 @@ export default {
       tripCompleted: "Поездка завершена",
       callDriver: "Позвонить водителю",
       chatWithDriver: "Чат с водителем",
-      goBack: "Вернуться",
+      goBack: "Назад",
       rating: "Рейтинг",
       car: "Автомобиль",
       licensePlate: "Гос. номер",
@@ -255,6 +254,9 @@ export default {
       howWasYourTrip: "Как прошла ваша поездка?",
       leaveComment: "Оставить комментарий",
       submit: "Отправить",
+      searchingTitle: "Ищем водителя",
+      searchingDescription: "Поиск водителя...",
+      cancelSearch: "Отменить поиск",
     },
   },
 

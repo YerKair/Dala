@@ -60,7 +60,7 @@ export class RestaurantOrderService {
 
       // Then try to send to server
       const response = await fetch(
-        "http://192.168.0.104:8000/api/orders/history",
+        "http://192.168.0.109:8000/api/orders/history",
         {
           method: "POST",
           headers: {
@@ -97,7 +97,7 @@ export class RestaurantOrderService {
       try {
         console.log("Fetching restaurant order history from API...");
         const response = await fetch(
-          "http://192.168.0.104:8000/api/orders/history",
+          "http://192.168.0.109:8000/api/orders/history",
           {
             method: "GET",
             headers: {
