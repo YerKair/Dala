@@ -46,6 +46,7 @@ export default function ProductCreation() {
   const initialCategoryId = params.categoryId
     ? String(params.categoryId)
     : undefined;
+  const productId = params.productId ? String(params.productId) : undefined;
   const api = useApi();
   const { isAuthenticated } = useAuth();
 
@@ -59,7 +60,7 @@ export default function ProductCreation() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
   const [sellerName, setSellerName] = useState<string | null>(null);
-  const [productId, setProductId] = useState<string>(`temp_${Date.now()}`);
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -81,8 +82,11 @@ export default function ProductCreation() {
     } else {
       loadCategories();
       loadSellerInfo();
+      if (productId) {
+        loadProductDetails();
+      }
     }
-  }, [isAuthenticated, seller_id]);
+  }, [isAuthenticated, seller_id, productId]);
 
   const loadSellerInfo = async () => {
     if (!seller_id) return;
@@ -144,12 +148,58 @@ export default function ProductCreation() {
     }
   };
 
-  const handleImageSelected = (imageUri: string) => {
-    console.log(
-      "[DEBUG] Получено изображение в ProductCreation:",
-      imageUri.substring(0, 50) + "..."
-    );
-    setProductImage(imageUri);
+  const loadProductDetails = async () => {
+    try {
+      setIsLoading(true);
+      const productData = await api.getProduct(productId as string);
+
+      if (productData) {
+        setTitle(productData.title || "");
+        setDescription(productData.description || "");
+        setPrice(productData.price?.toString() || "");
+        setCategoryId(productData.category_id?.toString() || "1");
+        setStatus(productData.status || "active");
+        setIsEditing(true);
+
+        // Load product image
+        const imageUri = await getProductImage(productId as string);
+        if (imageUri) {
+          setProductImage(imageUri);
+        } else if (productData.images) {
+          setProductImage(productData.images);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading product details:", error);
+      Alert.alert("Ошибка", "Не удалось загрузить данные продукта");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleImageSelected = async (imageUri: string) => {
+    try {
+      console.log(
+        "[DEBUG] Получено изображение:",
+        imageUri.substring(0, 50) + "..."
+      );
+
+      // Validate image URI
+      if (
+        !imageUri.startsWith("data:image") &&
+        !imageUri.startsWith("file://") &&
+        !imageUri.startsWith("http")
+      ) {
+        throw new Error("Неверный формат изображения");
+      }
+
+      // Save temporary image
+      await saveProductImage(productId || "temp", imageUri);
+      setProductImage(imageUri);
+    } catch (error) {
+      console.error("Error handling selected image:", error);
+      Alert.alert("Ошибка", "Не удалось обработать выбранное изображение");
+    }
   };
 
   const createProduct = async () => {
@@ -175,64 +225,99 @@ export default function ProductCreation() {
       formData.append("seller_id", seller_id);
 
       if (productImage) {
-        formData.append("image", {
-          uri: productImage,
-          type: "image/jpeg",
-          name: "product.jpg",
-        } as any);
+        // Validate image URI
+        if (
+          !productImage.startsWith("data:image") &&
+          !productImage.startsWith("file://") &&
+          !productImage.startsWith("http")
+        ) {
+          throw new Error("Invalid image format");
+        }
+
+        // Handle base64 images
+        if (productImage.startsWith("data:image")) {
+          const base64Data = productImage.split(",")[1];
+          formData.append("image", {
+            uri: `data:image/jpeg;base64,${base64Data}`,
+            type: "image/jpeg",
+            name: "product.jpg",
+          } as any);
+        }
+        // Handle file:// and http(s):// images
+        else {
+          formData.append("image", {
+            uri: productImage,
+            type: "image/jpeg",
+            name: "product.jpg",
+          } as any);
+        }
       }
 
-      // Получаем токен для авторизации
+      // Get authentication token
       let token = await AsyncStorage.getItem("token");
       if (!token) {
         token = await AsyncStorage.getItem("userToken");
       }
 
-      const response = await fetch("http://192.168.0.109:8000/api/products", {
-        method: "POST",
-        headers: token
-          ? {
-              Accept: "application/json",
-              Authorization: `Bearer ${token}`,
-            }
-          : {
-              Accept: "application/json",
-            },
+      if (!token) {
+        throw new Error("Не найден токен авторизации");
+      }
+
+      const url = isEditing
+        ? `http://192.168.0.109:8000/api/products/${productId}`
+        : "http://192.168.0.109:8000/api/products";
+
+      const method = isEditing ? "PUT" : "POST";
+
+      const response = await fetch(url, {
+        method: method,
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.message || `HTTP error! status: ${response.status}`
+        );
       }
 
       const data = await response.json();
-      console.log("Product created successfully:", data);
+      console.log("Product created/updated successfully:", data);
 
       // Save image to local storage if exists
-      if (productImage) {
-        await saveProductImage(productImage, data.id);
+      const savedProductId = isEditing
+        ? productId
+        : data.id || data.product?.id;
+      if (productImage && savedProductId) {
+        try {
+          await saveProductImage(savedProductId, productImage);
+          console.log("Product image saved to local storage");
+        } catch (saveError) {
+          console.error("Error saving image to local storage:", saveError);
+        }
       }
 
-      Alert.alert("Успех", "Продукт успешно создан", [
-        {
-          text: "OK",
-          onPress: () => {
-            // Navigate back with force refresh and category filter
-            router.push({
-              pathname: "/delivery/products/ProductsPage",
-              params: {
-                storeId: seller_id,
-                refresh: Date.now(),
-                forceRefresh: "true",
-                categoryId: categoryId,
-              },
-            });
+      // Show success message and navigate back
+      Alert.alert(
+        "Успех",
+        isEditing ? "Продукт успешно обновлен" : "Продукт успешно создан",
+        [
+          {
+            text: "OK",
+            onPress: () => router.back(),
           },
-        },
-      ]);
+        ]
+      );
     } catch (error) {
-      console.error("Error creating product:", error);
-      Alert.alert("Ошибка", "Не удалось создать продукт");
+      console.error("Error creating/updating product:", error);
+      Alert.alert(
+        "Ошибка",
+        error instanceof Error ? error.message : "Не удалось сохранить продукт"
+      );
     } finally {
       setIsLoading(false);
     }
@@ -253,7 +338,9 @@ export default function ProductCreation() {
         <TouchableOpacity style={styles.backButton} onPress={goBack}>
           <Ionicons name="arrow-back" size={24} color="black" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Создание продукта</Text>
+        <Text style={styles.headerTitle}>
+          {isEditing ? "Редактирование продукта" : "Создание продукта"}
+        </Text>
         <View style={styles.headerRight} />
       </View>
 
@@ -330,7 +417,7 @@ export default function ProductCreation() {
           <View style={styles.imageSection}>
             <View style={styles.imagePicker}>
               <SimpleImagePicker
-                productId={productId}
+                productId={productId || "temp"}
                 onImageSelected={handleImageSelected}
                 style={styles.imagePickerContainer}
               />

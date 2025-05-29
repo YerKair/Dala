@@ -21,34 +21,34 @@ export class ApiService {
   private token: string | null = null;
 
   constructor() {
-    this.initializeToken();
+    this.loadToken();
   }
 
-  private async initializeToken() {
+  private async loadToken() {
     try {
-      // Try to get token from both possible storage locations
       let token = await AsyncStorage.getItem("token");
       if (!token) {
         token = await AsyncStorage.getItem("userToken");
       }
       this.token = token;
     } catch (error) {
-      console.error("Error initializing token:", error);
+      console.error("Error loading token:", error);
     }
   }
 
-  // Метод для получения заголовков с токеном авторизации
-  private getHeaders(contentType: string = "application/json") {
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      "Content-Type": contentType,
-    };
-
-    if (this.token) {
-      headers["Authorization"] = `Bearer ${this.token}`;
+  private async ensureToken() {
+    if (!this.token) {
+      await this.loadToken();
     }
+    return this.token;
+  }
 
-    return headers;
+  private getHeaders(contentType?: string) {
+    return {
+      Accept: "application/json",
+      "Content-Type": contentType || "application/json",
+      ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+    };
   }
 
   private async handleAuthError() {
@@ -70,6 +70,8 @@ export class ApiService {
     seller_id?: string | number
   ) {
     try {
+      await this.ensureToken();
+
       let url = `${API_BASE_URL}/products?page=${page}`;
 
       if (seller_id) {
@@ -85,6 +87,9 @@ export class ApiService {
       });
       return response.data;
     } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        throw new Error("Необходима авторизация");
+      }
       console.error("Failed to load products:", error);
       throw error;
     }
@@ -93,11 +98,21 @@ export class ApiService {
   // Получение одного продукта по ID
   async getProduct(id: string) {
     try {
+      await this.ensureToken();
+
       const response = await axios.get(`${API_BASE_URL}/products/${id}`, {
         headers: this.getHeaders(),
       });
       return response.data;
     } catch (error) {
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new Error("Необходима авторизация");
+        }
+        throw new Error(
+          error.response?.data?.message || `Ошибка загрузки продукта ${id}`
+        );
+      }
       console.error(`Failed to load product ${id}:`, error);
       throw error;
     }
@@ -106,50 +121,50 @@ export class ApiService {
   // Получение информации о магазине по ID
   async getStore(id: string) {
     try {
-      await this.initializeToken();
+      await this.ensureToken();
 
-      console.log(
-        `[API] Getting store ${id} with token:`,
-        this.token ? "Token present" : "No token"
-      );
-      console.log("[API] Request URL:", `${API_BASE_URL}/restaurants/${id}`);
-      console.log("[API] Request headers:", this.getHeaders());
+      console.log("[API] Getting store details for ID:", id);
+      const url = `${API_BASE_URL}/restaurants/${id}`;
+      console.log("[API] Request URL:", url);
 
-      const response = await axios.get(`${API_BASE_URL}/restaurants/${id}`, {
+      const response = await axios.get(url, {
         headers: this.getHeaders(),
       });
 
       console.log("[API] Store response status:", response.status);
-      console.log("[API] Store response data:", response.data);
-
       return response.data;
     } catch (error: any) {
       console.error(`[API] Failed to load store ${id}. Error details:`, {
         status: error.response?.status,
         statusText: error.response?.statusText,
         data: error.response?.data,
-        headers: error.response?.headers,
       });
 
+      if (error.response?.status === 404) {
+        throw new Error(`Store with ID ${id} not found`);
+      }
+
       if (error.response?.status === 401) {
-        console.log("[API] Unauthorized access, redirecting to login");
         await this.handleAuthError();
-        return null;
+        throw new Error("Необходима авторизация");
       }
 
-      if (error.response?.status === 500) {
-        console.error("[API] Server error response:", error.response?.data);
-        return null;
+      if (!error.response) {
+        throw new Error(
+          "Network error. Please check your internet connection."
+        );
       }
 
-      throw error;
+      throw new Error(
+        error.response?.data?.message || `Failed to load store ${id}`
+      );
     }
   }
 
   // Получение списка ресторанов/магазинов
   async getRestaurants() {
     try {
-      await this.initializeToken(); // Refresh token before request
+      await this.ensureToken(); // Refresh token before request
 
       console.log(
         "[API] Getting restaurants with token:",
@@ -308,7 +323,7 @@ export class ApiService {
   // Удаление ресторана
   async deleteRestaurant(id: string) {
     try {
-      await this.initializeToken(); // Refresh token before request
+      await this.ensureToken(); // Refresh token before request
       const response = await axios.delete(`${API_BASE_URL}/restaurants/${id}`, {
         headers: this.getHeaders(),
       });
@@ -328,46 +343,18 @@ export class ApiService {
   // Получение списка категорий
   async getCategories() {
     try {
-      console.log("[API] Sending request to get categories");
-      console.log("[API] URL:", `${API_BASE_URL}/categories`);
-      console.log("[API] Headers:", this.getHeaders());
-
-      // Проверяем токен перед запросом
-      if (!this.token) {
-        console.warn(
-          "[API] Warning: No auth token available for categories request"
-        );
-      } else {
-        console.log("[API] Using auth token for categories request");
-      }
+      await this.ensureToken();
 
       const response = await axios.get(`${API_BASE_URL}/categories`, {
         headers: this.getHeaders(),
       });
-
-      console.log("[API] Categories response status:", response.status);
-      console.log("[API] Categories data count:", response.data.length);
-
       return response.data;
-    } catch (error: any) {
-      console.error("Failed to load categories:", error);
-
-      // Подробная информация об ошибке
-      if (error.response) {
-        // Ответ сервера получен, но с ошибкой
-        console.error("[API] Server error:", error.response.status);
-        console.error("[API] Error data:", error.response.data);
-        console.error("[API] Response headers:", error.response.headers);
-      } else if (error.request) {
-        // Запрос был сделан, но ответ не получен
-        console.error("[API] No response from server:", error.request);
-      } else {
-        // Что-то произошло во время настройки запроса
-        console.error("[API] Request error:", error.message);
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        throw new Error("Необходима авторизация");
       }
-
-      // Возвращаем пустой массив вместо ошибки
-      return [];
+      console.error("Failed to load categories:", error);
+      throw error;
     }
   }
 
@@ -423,7 +410,7 @@ export class ApiService {
   // Создание нового ресторана
   async createRestaurant(data: any) {
     try {
-      await this.initializeToken();
+      await this.ensureToken();
 
       console.log("[API] Creating restaurant with data:", {
         ...data,
@@ -497,7 +484,7 @@ export class ApiService {
   // Обновление ресторана
   async updateRestaurant(id: string, data: any) {
     try {
-      await this.initializeToken();
+      await this.ensureToken();
 
       console.log("[API] Updating restaurant", id, "with data:", {
         ...data,

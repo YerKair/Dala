@@ -12,7 +12,7 @@ export const getProductImage = async (
   productId: string | number | undefined
 ): Promise<string | null> => {
   if (!productId) {
-    console.log("No product ID provided to getProductImage");
+    console.log("[DEBUG] No product ID provided to getProductImage");
     return null;
   }
 
@@ -22,12 +22,25 @@ export const getProductImage = async (
     // First try to get image from AsyncStorage
     const key = `product_image_${id}`;
     const savedImage = await AsyncStorage.getItem(key);
+
     if (savedImage) {
-      console.log(`[DEBUG] Found cached image for product ${id}`);
-      return savedImage;
+      // Validate the saved image URI
+      if (
+        savedImage.startsWith("data:image") ||
+        savedImage.startsWith("file://") ||
+        savedImage.startsWith("http")
+      ) {
+        console.log(`[DEBUG] Found valid cached image for product ${id}`);
+        return savedImage;
+      } else {
+        console.log(
+          `[DEBUG] Found invalid cached image for product ${id}, removing it`
+        );
+        await AsyncStorage.removeItem(key);
+      }
     }
 
-    // If no saved image, try to fetch from API
+    // If no valid saved image, try to fetch from API
     try {
       const response = await fetch(
         `http://192.168.0.109:8000/api/products/${id}`
@@ -35,14 +48,24 @@ export const getProductImage = async (
       if (response.ok) {
         const data = await response.json();
         if (data.images) {
-          // If the product has an image URL, save it to AsyncStorage and return
           const imageUrl = data.images.startsWith("http")
             ? data.images
             : `http://192.168.0.109:8000${data.images}`;
 
-          await saveProductImage(id, imageUrl);
-          console.log(`[DEBUG] Saved new image for product ${id}`);
-          return imageUrl;
+          // Validate the image URL before saving
+          try {
+            const imageResponse = await fetch(imageUrl);
+            if (
+              imageResponse.ok &&
+              imageResponse.headers.get("content-type")?.startsWith("image/")
+            ) {
+              await saveProductImage(id, imageUrl);
+              console.log(`[DEBUG] Saved valid image URL for product ${id}`);
+              return imageUrl;
+            }
+          } catch (imageError) {
+            console.error("Error validating image URL:", imageError);
+          }
         }
       }
     } catch (apiError) {
@@ -56,7 +79,6 @@ export const getProductImage = async (
       "https://via.placeholder.com/300/8A9D63/FFFFFF?text=Grocery+Item",
     ];
 
-    // Determine which placeholder to use based on product ID
     const index = parseInt(id.replace(/[^0-9]/g, "")) % placeholders.length;
     const placeholderUrl = placeholders[index || 0];
     console.log(`[DEBUG] Using placeholder image for product ${id}`);
@@ -72,12 +94,24 @@ export const saveProductImage = async (
   productId: string | number,
   imageUri: string
 ): Promise<boolean> => {
-  if (!productId) {
-    console.error("No product ID provided to saveProductImage");
+  if (!productId || !imageUri) {
+    console.error(
+      "Invalid product ID or image URI provided to saveProductImage"
+    );
     return false;
   }
 
   try {
+    // Validate the image URI format
+    if (
+      !imageUri.startsWith("data:image") &&
+      !imageUri.startsWith("file://") &&
+      !imageUri.startsWith("http")
+    ) {
+      console.error("Invalid image URI format");
+      return false;
+    }
+
     const key = `product_image_${productId.toString()}`;
     await AsyncStorage.setItem(key, imageUri);
     console.log(`[DEBUG] Successfully saved image for product ${productId}`);
