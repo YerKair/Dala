@@ -31,6 +31,7 @@ export interface AuthContextType {
   logout: () => Promise<void>;
   register: (userData: User, userToken: string) => Promise<boolean>;
   updateUserRole: (role: string) => Promise<boolean>;
+  updateUser: (userData: User) => Promise<boolean>;
   isAuthenticated: boolean;
 }
 
@@ -43,6 +44,7 @@ export const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
   register: async () => false,
   updateUserRole: async () => false,
+  updateUser: async () => false,
   isAuthenticated: false,
 });
 
@@ -197,6 +199,18 @@ export const AuthProvider = ({ children }: AuthProviderProps): JSX.Element => {
     }
   };
 
+  // Add updateUser function
+  const updateUser = async (userData: User): Promise<boolean> => {
+    try {
+      await AsyncStorage.setItem("userData", JSON.stringify(userData));
+      setUser(userData);
+      return true;
+    } catch (error) {
+      console.error("Error updating user data:", error);
+      return false;
+    }
+  };
+
   const authContextValue: AuthContextType = {
     user,
     token,
@@ -205,7 +219,8 @@ export const AuthProvider = ({ children }: AuthProviderProps): JSX.Element => {
     logout,
     register,
     updateUserRole,
-    isAuthenticated: !!token,
+    updateUser,
+    isAuthenticated: !!user && !!token,
   };
 
   return (
