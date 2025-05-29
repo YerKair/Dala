@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../../auth/AuthContext";
 import { useTranslation } from "react-i18next";
+import { useApi } from "./utils/apiService";
 
 // Constants
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -265,6 +266,7 @@ export default function DeliveryPage() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { isAuthenticated, user } = useAuth();
+  const api = useApi();
 
   const [stores, setStores] = useState<Store[]>([]);
   const [popularStores, setPopularStores] = useState<Store[]>([]);
@@ -275,7 +277,7 @@ export default function DeliveryPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [categoryKey, setCategoryKey] = useState<number>(0); // Ключ для перерендера категорий
+  const [categoryKey, setCategoryKey] = useState<number>(0);
 
   // Define categories
   const categories: Category[] = [
@@ -306,167 +308,124 @@ export default function DeliveryPage() {
     },
   ];
 
-  // Fetch stores data
-  useEffect(() => {
-    const fetchStores = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
+  // Определяем fetchStores как useCallback
+  const fetchStores = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
 
-        let token = await AsyncStorage.getItem("token");
-        if (!token) {
-          token = await AsyncStorage.getItem("userToken");
-        }
-
-        console.log(
-          "Attempting to fetch stores from:",
-          "http://192.168.0.109:8000/api/restaurants"
-        );
-
-        const response = await fetch(
-          "http://192.168.0.109:8000/api/restaurants",
-          {
-            headers: {
-              Accept: "application/json",
-              ...(token && { Authorization: `Bearer ${token}` }),
-            },
-          }
-        );
-
-        console.log("Response status:", response.status);
-        const responseText = await response.text();
-        console.log("Response body:", responseText);
-
-        if (response.status === 401) {
-          console.log("User is not authorized, using demo data");
-          // Use demo data for unauthorized users
-          const processedDemoData = demoStores.map((store) => ({
-            ...store,
-            isPopular: store.isPopular || Math.random() > 0.7,
-            isRecommended: store.isRecommended || Math.random() > 0.7,
-          }));
-
-          setStores(processedDemoData);
-          setFilteredStores(processedDemoData);
-          setPopularStores(
-            processedDemoData.filter((store) => store.isPopular)
-          );
-          setRecommendedStores(
-            processedDemoData.filter((store) => store.isRecommended)
-          );
-
-          // Store demo data in AsyncStorage
-          await AsyncStorage.setItem(
-            "deliveryStores",
-            JSON.stringify(processedDemoData)
-          );
-          setError("Showing demo data - please log in to see actual stores");
-          return;
-        }
-
-        if (!response.ok) {
-          throw new Error(
-            `HTTP error! status: ${response.status}, body: ${responseText}`
-          );
-        }
-
-        let data;
+      let storesData;
+      if (isAuthenticated) {
         try {
-          data = JSON.parse(responseText);
-        } catch (parseError) {
-          console.error("Error parsing response:", parseError);
-          throw new Error("Invalid JSON response from server");
+          console.log("[DeliveryPage] Attempting to fetch stores from API");
+          storesData = await api.getRestaurants();
+
+          if (!storesData) {
+            console.log(
+              "[DeliveryPage] No data received from API, using demo data"
+            );
+            storesData = demoStores;
+            setError(t("serverError"));
+          } else if (Array.isArray(storesData) && storesData.length === 0) {
+            console.log(
+              "[DeliveryPage] Empty array received from API, using demo data"
+            );
+            storesData = demoStores;
+            setError(t("noStoresAvailable"));
+          }
+        } catch (apiError: any) {
+          console.error("[DeliveryPage] API error:", apiError);
+          storesData = demoStores;
+
+          if (apiError.response?.status === 500) {
+            setError(t("serverError"));
+          } else if (apiError.response?.status === 401) {
+            setError(t("pleaseLoginToSeeStores"));
+          } else {
+            setError(t("failedToLoadStores"));
+          }
         }
+      } else {
+        console.log("[DeliveryPage] User not authenticated, using demo data");
+        storesData = demoStores;
+        setError(t("pleaseLoginToSeeStores"));
+      }
 
-        console.log("Successfully parsed stores data:", data);
+      const processedData = storesData.map((store: Store) => ({
+        ...store,
+        isPopular: store.isPopular || Math.random() > 0.7,
+        isRecommended: store.isRecommended || Math.random() > 0.7,
+        category:
+          store.category ||
+          categories[Math.floor(Math.random() * (categories.length - 1)) + 1]
+            .id,
+      }));
 
-        const processedData = data.map((store: any) => ({
-          ...store,
-          isPopular: store.isPopular || Math.random() > 0.7,
-          isRecommended: store.isRecommended || Math.random() > 0.7,
-          category:
-            store.category ||
-            categories[Math.floor(Math.random() * (categories.length - 1)) + 1]
-              .id,
-        }));
+      setStores(processedData);
+      setFilteredStores(processedData);
+      setPopularStores(processedData.filter((store: Store) => store.isPopular));
+      setRecommendedStores(
+        processedData.filter((store: Store) => store.isRecommended)
+      );
 
-        setStores(processedData);
-        setFilteredStores(processedData);
-        setPopularStores(
-          processedData.filter((store: Store) => store.isPopular)
-        );
-        setRecommendedStores(
-          processedData.filter((store: Store) => store.isRecommended)
-        );
-
-        // Store data in AsyncStorage for offline access
+      try {
         await AsyncStorage.setItem(
           "deliveryStores",
           JSON.stringify(processedData)
         );
-      } catch (error) {
-        console.error("Error fetching stores:", error);
-        setError(t("failedToLoadStores"));
-
-        // Try to load from AsyncStorage if network request fails
-        try {
-          console.log("Attempting to load stores from AsyncStorage");
-          const storedData = await AsyncStorage.getItem("deliveryStores");
-          if (storedData) {
-            console.log("Found stored data in AsyncStorage");
-            const parsedData = JSON.parse(storedData);
-            setStores(parsedData);
-            setFilteredStores(parsedData);
-            setPopularStores(
-              parsedData.filter((store: Store) => store.isPopular)
-            );
-            setRecommendedStores(
-              parsedData.filter((store: Store) => store.isRecommended)
-            );
-            setError(t("showingSavedData"));
-          } else {
-            console.log(
-              "No stored data found in AsyncStorage, using demo data"
-            );
-            // Use demo data as last resort
-            setStores(demoStores);
-            setFilteredStores(demoStores);
-            setPopularStores(demoStores.filter((store) => store.isPopular));
-            setRecommendedStores(
-              demoStores.filter((store) => store.isRecommended)
-            );
-            setError(
-              "Showing demo data - please check your internet connection"
-            );
-          }
-        } catch (storageError) {
-          console.error("Error accessing storage:", storageError);
-        }
-      } finally {
-        setIsLoading(false);
+        console.log("[DeliveryPage] Stores data saved to AsyncStorage");
+      } catch (storageError) {
+        console.error(
+          "[DeliveryPage] Failed to save to AsyncStorage:",
+          storageError
+        );
       }
-    };
+    } catch (error) {
+      console.error("[DeliveryPage] Error in fetchStores:", error);
+      setError(t("failedToLoadStores"));
 
-    fetchStores();
-  }, [t]);
+      try {
+        const storedData = await AsyncStorage.getItem("deliveryStores");
+        if (storedData) {
+          const parsedData = JSON.parse(storedData);
+          setStores(parsedData);
+          setFilteredStores(parsedData);
+          setPopularStores(
+            parsedData.filter((store: Store) => store.isPopular)
+          );
+          setRecommendedStores(
+            parsedData.filter((store: Store) => store.isRecommended)
+          );
+          setError(t("showingSavedData"));
+        }
+      } catch (storageError) {
+        console.error("[DeliveryPage] Storage error:", storageError);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, t]);
 
-  // Filter stores based on search query and category
+  // Используем useEffect только для первоначальной загрузки
   useEffect(() => {
-    console.log(`Filtering by category: ${selectedCategory}`);
+    fetchStores();
+  }, [fetchStores]);
 
+  // Отдельный useEffect для фильтрации
+  useEffect(() => {
+    if (stores.length === 0) return;
+
+    console.log(`Filtering by category: ${selectedCategory}`);
     let filtered = [...stores];
 
-    // Apply category filter if not "all"
     if (selectedCategory !== "all") {
       filtered = filtered.filter(
         (store) =>
           store.category &&
           store.category.toLowerCase() === selectedCategory.toLowerCase()
       );
-      console.log(`Filtered by category: ${filtered.length} stores remaining`);
     }
 
-    // Apply search filter if query exists
     if (searchQuery.trim() !== "") {
       const lowercasedQuery = searchQuery.toLowerCase();
       filtered = filtered.filter(
@@ -477,12 +436,10 @@ export default function DeliveryPage() {
           (store.address &&
             store.address.toLowerCase().includes(lowercasedQuery))
       );
-      console.log(`Filtered by search: ${filtered.length} stores remaining`);
     }
 
     setFilteredStores(filtered);
 
-    // Also update popular and recommended lists with the same filters
     const newPopularStores = stores
       .filter((store) => store.isPopular)
       .filter(
@@ -506,7 +463,7 @@ export default function DeliveryPage() {
 
     console.log(`Updated popular stores: ${newPopularStores.length}`);
     console.log(`Updated recommended stores: ${newRecommendedStores.length}`);
-  }, [searchQuery, stores, selectedCategory]);
+  }, [searchQuery, selectedCategory, stores]);
 
   // Навигация к деталям магазина
   const navigateToStoreDetail = (storeId: number) => {

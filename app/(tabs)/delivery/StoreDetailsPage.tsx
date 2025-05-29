@@ -335,9 +335,10 @@ export default function StoreDetailsPage() {
       <View style={styles.redBanner}>
         <StatusBar barStyle="light-content" />
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => router.push("/delivery/DeliverPage")}
           style={styles.backButton}
         >
+          a
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
         <Text style={styles.bannerTitle}>

@@ -1,6 +1,8 @@
 // /(tabs)/marketplace/utils/apiService.ts
 import axios from "axios";
 import { useAuth } from "../../../auth/AuthContext";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
 
 // API Base URL - измените на ваш реальный URL бэкенда
 const API_BASE_URL = "http://192.168.0.109:8000/api";
@@ -16,10 +18,23 @@ const api = axios.create({
 
 // Класс для работы с API, который принимает токен
 export class ApiService {
-  private token: string | null;
+  private token: string | null = null;
 
-  constructor(token: string | null) {
-    this.token = token;
+  constructor() {
+    this.initializeToken();
+  }
+
+  private async initializeToken() {
+    try {
+      // Try to get token from both possible storage locations
+      let token = await AsyncStorage.getItem("token");
+      if (!token) {
+        token = await AsyncStorage.getItem("userToken");
+      }
+      this.token = token;
+    } catch (error) {
+      console.error("Error initializing token:", error);
+    }
   }
 
   // Метод для получения заголовков с токеном авторизации
@@ -34,6 +49,16 @@ export class ApiService {
     }
 
     return headers;
+  }
+
+  private async handleAuthError() {
+    // Clear tokens from storage
+    await AsyncStorage.removeItem("token");
+    await AsyncStorage.removeItem("userToken");
+    this.token = null;
+
+    // Redirect to login
+    router.push("/auth/login");
   }
 
   // ПРОДУКТЫ
@@ -81,12 +106,42 @@ export class ApiService {
   // Получение информации о магазине по ID
   async getStore(id: string) {
     try {
+      await this.initializeToken();
+
+      console.log(
+        `[API] Getting store ${id} with token:`,
+        this.token ? "Token present" : "No token"
+      );
+      console.log("[API] Request URL:", `${API_BASE_URL}/restaurants/${id}`);
+      console.log("[API] Request headers:", this.getHeaders());
+
       const response = await axios.get(`${API_BASE_URL}/restaurants/${id}`, {
         headers: this.getHeaders(),
       });
+
+      console.log("[API] Store response status:", response.status);
+      console.log("[API] Store response data:", response.data);
+
       return response.data;
-    } catch (error) {
-      console.error(`Failed to load store ${id}:`, error);
+    } catch (error: any) {
+      console.error(`[API] Failed to load store ${id}. Error details:`, {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        headers: error.response?.headers,
+      });
+
+      if (error.response?.status === 401) {
+        console.log("[API] Unauthorized access, redirecting to login");
+        await this.handleAuthError();
+        return null;
+      }
+
+      if (error.response?.status === 500) {
+        console.error("[API] Server error response:", error.response?.data);
+        return null;
+      }
+
       throw error;
     }
   }
@@ -94,12 +149,43 @@ export class ApiService {
   // Получение списка ресторанов/магазинов
   async getRestaurants() {
     try {
+      await this.initializeToken(); // Refresh token before request
+
+      console.log(
+        "[API] Getting restaurants with token:",
+        this.token ? "Token present" : "No token"
+      );
+      console.log("[API] Request URL:", `${API_BASE_URL}/restaurants`);
+      console.log("[API] Request headers:", this.getHeaders());
+
       const response = await axios.get(`${API_BASE_URL}/restaurants`, {
         headers: this.getHeaders(),
       });
+
+      console.log("[API] Restaurants response status:", response.status);
+      console.log("[API] Restaurants response data:", response.data);
+
       return response.data;
-    } catch (error) {
-      console.error("Failed to load restaurants:", error);
+    } catch (error: any) {
+      console.error("[API] Failed to load restaurants. Error details:", {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        headers: error.response?.headers,
+      });
+
+      if (error.response?.status === 401) {
+        console.log("[API] Unauthorized access, redirecting to login");
+        await this.handleAuthError();
+        return [];
+      }
+
+      if (error.response?.status === 500) {
+        console.error("[API] Server error response:", error.response?.data);
+        // В случае ошибки 500 возвращаем пустой массив и позволяем приложению использовать демо-данные
+        return [];
+      }
+
       throw error;
     }
   }
@@ -222,11 +308,16 @@ export class ApiService {
   // Удаление ресторана
   async deleteRestaurant(id: string) {
     try {
+      await this.initializeToken(); // Refresh token before request
       const response = await axios.delete(`${API_BASE_URL}/restaurants/${id}`, {
         headers: this.getHeaders(),
       });
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        await this.handleAuthError();
+        return null;
+      }
       console.error(`Failed to delete restaurant ${id}:`, error);
       throw error;
     }
@@ -328,12 +419,161 @@ export class ApiService {
       throw error;
     }
   }
+
+  // Создание нового ресторана
+  async createRestaurant(data: any) {
+    try {
+      await this.initializeToken();
+
+      console.log("[API] Creating restaurant with data:", {
+        ...data,
+        image: data.image ? "Image data present" : "No image",
+      });
+
+      const formData = new FormData();
+      Object.keys(data).forEach((key) => {
+        if (key === "image" && data[key]) {
+          formData.append("image", {
+            uri: data[key],
+            type: "image/jpeg",
+            name: "restaurant_image.jpg",
+          } as any);
+        } else {
+          formData.append(key, String(data[key]));
+        }
+      });
+
+      const response = await axios.post(
+        `${API_BASE_URL}/restaurants`,
+        formData,
+        {
+          headers: {
+            ...this.getHeaders("multipart/form-data"),
+            Accept: "application/json",
+          },
+          timeout: 10000,
+        }
+      );
+
+      console.log("[API] Restaurant creation response:", response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error("[API] Restaurant creation error details:", {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+
+      if (error.code === "ECONNABORTED") {
+        throw new Error(
+          "Превышено время ожидания запроса. Пожалуйста, проверьте подключение к интернету."
+        );
+      }
+
+      if (!error.response) {
+        throw new Error(
+          "Не удалось подключиться к серверу. Пожалуйста, проверьте подключение к интернету."
+        );
+      }
+
+      if (error.response?.status === 401) {
+        await this.handleAuthError();
+        throw new Error("Требуется авторизация");
+      }
+
+      if (error.response?.status === 422) {
+        const validationErrors = error.response.data.errors;
+        const errorMessage = Object.values(validationErrors).flat().join("\n");
+        throw new Error(errorMessage || "Ошибка валидации данных");
+      }
+
+      throw new Error(
+        error.response?.data?.message || "Не удалось создать ресторан"
+      );
+    }
+  }
+
+  // Обновление ресторана
+  async updateRestaurant(id: string, data: any) {
+    try {
+      await this.initializeToken();
+
+      console.log("[API] Updating restaurant", id, "with data:", {
+        ...data,
+        image: data.image ? "Image data present" : "No image",
+      });
+
+      const formData = new FormData();
+      Object.keys(data).forEach((key) => {
+        if (key === "image" && data[key]) {
+          formData.append("image", {
+            uri: data[key],
+            type: "image/jpeg",
+            name: "restaurant_image.jpg",
+          } as any);
+        } else {
+          formData.append(key, String(data[key]));
+        }
+      });
+      formData.append("_method", "PUT"); // Для Laravel
+
+      const response = await axios.post(
+        `${API_BASE_URL}/restaurants/${id}`,
+        formData,
+        {
+          headers: {
+            ...this.getHeaders("multipart/form-data"),
+            Accept: "application/json",
+          },
+          timeout: 10000,
+        }
+      );
+
+      console.log("[API] Restaurant update response:", response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error("[API] Restaurant update error details:", {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+
+      if (error.code === "ECONNABORTED") {
+        throw new Error(
+          "Превышено время ожидания запроса. Пожалуйста, проверьте подключение к интернету."
+        );
+      }
+
+      if (!error.response) {
+        throw new Error(
+          "Не удалось подключиться к серверу. Пожалуйста, проверьте подключение к интернету."
+        );
+      }
+
+      if (error.response?.status === 401) {
+        await this.handleAuthError();
+        throw new Error("Требуется авторизация");
+      }
+
+      if (error.response?.status === 422) {
+        const validationErrors = error.response.data.errors;
+        const errorMessage = Object.values(validationErrors).flat().join("\n");
+        throw new Error(errorMessage || "Ошибка валидации данных");
+      }
+
+      throw new Error(
+        error.response?.data?.message || "Не удалось обновить ресторан"
+      );
+    }
+  }
 }
 
 // Хук для использования API с текущим токеном из контекста
 export function useApi() {
   const { token } = useAuth();
-  return new ApiService(token);
+  return new ApiService();
 }
 
 // Также экспортируем статические методы для авторизации

@@ -84,7 +84,7 @@ export default function SubmitAdPage() {
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [price, setPrice] = useState("");
-  const [condition, setCondition] = useState(t("marketplace.categoryPage.new"));
+  const [condition, setCondition] = useState(t("marketplace.conditions.new"));
   const [mainPhotoUri, setMainPhotoUri] = useState<string | null>(null);
   const [additionalPhotos, setAdditionalPhotos] = useState<
     Array<string | null>
@@ -200,16 +200,16 @@ export default function SubmitAdPage() {
       t("marketplace.submitAdPage.selectConditionMessage"),
       [
         {
-          text: t("marketplace.categoryPage.new"),
-          onPress: () => setCondition(t("marketplace.categoryPage.new")),
+          text: t("marketplace.conditions.new"),
+          onPress: () => setCondition(t("marketplace.conditions.new")),
         },
         {
-          text: t("marketplace.categoryPage.used"),
-          onPress: () => setCondition(t("marketplace.categoryPage.used")),
+          text: t("marketplace.conditions.used"),
+          onPress: () => setCondition(t("marketplace.conditions.used")),
         },
         {
-          text: t("marketplace.categoryPage.damaged"),
-          onPress: () => setCondition(t("marketplace.categoryPage.damaged")),
+          text: t("marketplace.conditions.damaged"),
+          onPress: () => setCondition(t("marketplace.conditions.damaged")),
         },
         { text: t("marketplace.submitAdPage.cancel"), style: "cancel" },
       ]
