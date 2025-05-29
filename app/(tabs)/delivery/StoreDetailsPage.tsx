@@ -79,26 +79,42 @@ export default function StoreDetailsPage() {
     setLoading(true);
     setErrorMessage(null);
     try {
-      // Fetch store information
-      const storeResponse = await api.getStore(storeId as string);
+      // Validate store ID
+      const actualStoreId =
+        typeof storeId === "string"
+          ? storeId
+          : Array.isArray(storeId)
+          ? storeId[0]
+          : "";
+      if (!actualStoreId) {
+        setErrorMessage("Invalid restaurant ID");
+        return;
+      }
+
+      // Fetch restaurant information
+      const storeResponse = await api.getStore(actualStoreId);
+      if (!storeResponse) {
+        setErrorMessage("Restaurant not found");
+        return;
+      }
       setStoreInfo(storeResponse);
 
-      // Load store image from local storage
-      const storeImageUri = await getStoreImage(storeId as string);
+      // Load restaurant image from local storage
+      const storeImageUri = await getStoreImage(actualStoreId);
       setStoreImage(storeImageUri);
 
-      // Fetch categories
+      // Fetch categories and other data
       const categoriesResponse = await api.getCategories();
       const storeCategories = categoriesResponse.map((category: any) => ({
         ...category,
-        store_id: storeId as string,
-        id: category.id.toString(), // Convert number to string if needed
+        store_id: actualStoreId,
+        id: category.id.toString(),
       }));
 
-      // Load category images from CategoryManager
+      // Load category images
       const enhancedCategories = await Promise.all(
         storeCategories.map(async (category: any) => {
-          const image = await getCategoryImage(storeId as string, category.id);
+          const image = await getCategoryImage(actualStoreId, category.id);
           return {
             ...category,
             image: image || undefined,
@@ -108,13 +124,7 @@ export default function StoreDetailsPage() {
 
       setCategories(enhancedCategories);
 
-      // Fetch products for this store
-      const actualStoreId =
-        typeof storeId === "string"
-          ? storeId
-          : Array.isArray(storeId)
-          ? storeId[0]
-          : "";
+      // Fetch products for this restaurant
       const productsResponse = await api.getProducts(1, "", actualStoreId);
       setProducts(productsResponse.data || []);
 
@@ -122,11 +132,18 @@ export default function StoreDetailsPage() {
       if (enhancedCategories.length > 0) {
         setSelectedCategory(enhancedCategories[0].id);
       }
-    } catch (error) {
-      console.error("Error loading store details:", error);
-      setErrorMessage(
-        "Error getting product image: TypeError: product images cannot be null"
-      );
+    } catch (error: any) {
+      console.error("Error loading restaurant details:", error);
+      if (error.response?.status === 404) {
+        setErrorMessage(
+          "Restaurant not found. Please check the ID and try again."
+        );
+      } else if (error.message === "Необходима авторизация") {
+        setErrorMessage("Please log in to view restaurant details");
+        router.push("/auth/login");
+      } else {
+        setErrorMessage(error.message || "Failed to load restaurant details");
+      }
     } finally {
       setLoading(false);
     }
@@ -338,7 +355,6 @@ export default function StoreDetailsPage() {
           onPress={() => router.push("/delivery/DeliverPage")}
           style={styles.backButton}
         >
-          a
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
         <Text style={styles.bannerTitle}>
