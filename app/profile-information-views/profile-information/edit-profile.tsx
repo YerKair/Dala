@@ -1,21 +1,19 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   View,
   Text,
   StyleSheet,
   SafeAreaView,
   TouchableOpacity,
-  TextInput,
   ScrollView,
-  Alert,
-  ActivityIndicator,
+  Dimensions,
 } from "react-native";
 import { router } from "expo-router";
 import Svg, { Path } from "react-native-svg";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useAuth } from "../../auth/AuthContext";
 import { ImagePickerComponent } from "./ImagePickerComponent";
 import { useTranslation } from "react-i18next";
+import { LinearGradient } from "expo-linear-gradient";
+import { BlurView } from "expo-blur";
 
 // Back icon component
 const BackIcon = () => (
@@ -31,168 +29,72 @@ const BackIcon = () => (
   </Svg>
 );
 
+const { width } = Dimensions.get("window");
+
 export default function EditProfileScreen(): JSX.Element {
-  const { user, token } = useAuth();
   const { t } = useTranslation();
-  const [name, setName] = useState<string>(user?.name || "");
-  const [email, setEmail] = useState<string>(user?.email || "");
-  const [phone, setPhone] = useState<string>(user?.phone || "");
-  const [loading, setLoading] = useState<boolean>(false);
 
   const handleBackPress = (): void => {
     router.push("/profile-information-views/profile-information");
   };
 
-  const handleUpdateProfile = async (): Promise<void> => {
-    // Validate inputs
-    if (!name.trim()) {
-      Alert.alert(t("error"), t("nameRequired"));
-      return;
-    }
-
-    if (!email.trim()) {
-      Alert.alert(t("error"), t("emailRequired"));
-      return;
-    }
-
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email.trim())) {
-      Alert.alert(t("error"), t("invalidEmail"));
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const response = await fetch(
-        "http://192.168.0.109:8000/api/profile/update",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            name: name.trim(),
-            email: email.trim(),
-            phone: phone.trim(),
-          }),
-        }
-      );
-
-      const responseData = await response.json();
-
-      if (response.ok) {
-        // Update local user data in AsyncStorage
-        if (user) {
-          const userData = await AsyncStorage.getItem("userData");
-          if (userData) {
-            const parsedUserData = JSON.parse(userData);
-            const updatedUserData = {
-              ...parsedUserData,
-              name: name.trim(),
-              email: email.trim(),
-              phone: phone.trim(),
-            };
-
-            await AsyncStorage.setItem(
-              "userData",
-              JSON.stringify(updatedUserData)
-            );
-          }
-        }
-
-        // Show success message
-        Alert.alert(t("success"), t("profileUpdatedSuccessfully"), [
-          {
-            text: t("ok"),
-            onPress: () =>
-              router.push("/profile-information-views/profile-information"),
-          },
-        ]);
-      } else {
-        // Handle server errors
-        const errorMessage = responseData.message || t("failedToUpdateProfile");
-        Alert.alert(t("error"), errorMessage);
-      }
-    } catch (error) {
-      console.error("Profile update error:", error);
-      Alert.alert(t("error"), t("networkError"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header with back button */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-          <BackIcon />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t("editProfile")}</Text>
-        <View style={styles.headerRight} />
-      </View>
-
-      <ScrollView style={styles.scrollView}>
-        {/* Avatar section */}
-        <View style={styles.avatarContainer}>
-          <ImagePickerComponent />
-        </View>
-
-        {/* Edit form */}
-        <View style={styles.formContainer}>
-          {/* Name */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>{t("name")}</Text>
-            <TextInput
-              style={styles.input}
-              value={name}
-              onChangeText={setName}
-              placeholder={t("enterYourName")}
-            />
-          </View>
-
-          {/* Email */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>{t("email")}</Text>
-            <TextInput
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-              placeholder={t("enterYourEmail")}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-          </View>
-
-          {/* Phone */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>{t("phone")}</Text>
-            <TextInput
-              style={styles.input}
-              value={phone}
-              onChangeText={setPhone}
-              placeholder={t("enterYourPhone")}
-              keyboardType="phone-pad"
-            />
-          </View>
-
-          {/* Update button */}
+      <LinearGradient
+        colors={["#ffffff", "#f8f9fa", "#e9ecef"]}
+        style={styles.gradient}
+      >
+        {/* Header with back button */}
+        <BlurView intensity={80} tint="light" style={styles.header}>
           <TouchableOpacity
-            style={styles.updateButton}
-            onPress={handleUpdateProfile}
-            disabled={loading}
+            style={styles.backButton}
+            onPress={handleBackPress}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            {loading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text style={styles.updateButtonText}>{t("updateProfile")}</Text>
-            )}
+            <BackIcon />
           </TouchableOpacity>
-        </View>
-      </ScrollView>
+          <Text style={styles.headerTitle}>{t("profileInformation")}</Text>
+          <View style={styles.headerRight} />
+        </BlurView>
+
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollViewContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.contentContainer}>
+            {/* Title section */}
+            <View style={styles.titleContainer}>
+              <Text style={styles.title}>{t("personalInfo")}</Text>
+              <Text style={styles.subtitle}>{t("personalInfoDesc")}</Text>
+            </View>
+
+            {/* Avatar section */}
+            <View style={styles.avatarWrapper}>
+              <LinearGradient
+                colors={["#ffffff", "#f8f9fa"]}
+                style={styles.avatarGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <View style={styles.avatarContainer}>
+                  <ImagePickerComponent />
+                </View>
+              </LinearGradient>
+            </View>
+
+            {/* Info text */}
+            <View style={styles.infoContainer}>
+              <Text style={styles.infoText}>
+                {t("profilePhoto.tapToChange")}
+              </Text>
+              <Text style={styles.infoSubtext}>
+                {t("profilePhoto.recommendedSize")}
+              </Text>
+            </View>
+          </View>
+        </ScrollView>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -200,26 +102,36 @@ export default function EditProfileScreen(): JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#fff",
+  },
+  gradient: {
+    flex: 1,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F2F2F2",
-    justifyContent: "center",
-    alignItems: "center",
+    height: 56,
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0, 0, 0, 0.05)",
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: "600",
+    color: "#000",
+    letterSpacing: 0.5,
+  },
+  backButton: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   headerRight: {
     width: 40,
@@ -227,40 +139,75 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  avatarContainer: {
-    paddingVertical: 20,
+  scrollViewContent: {
+    flexGrow: 1,
+  },
+  contentContainer: {
+    flex: 1,
     alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 40,
   },
-  formContainer: {
-    paddingHorizontal: 16,
+  titleContainer: {
+    alignItems: "center",
+    marginVertical: 32,
   },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 14,
-    color: "#666",
+  title: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#000",
+    textAlign: "center",
     marginBottom: 8,
+    letterSpacing: 0.5,
   },
-  input: {
-    backgroundColor: "#F5F5F5",
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
+  subtitle: {
     fontSize: 16,
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 24,
+    maxWidth: width * 0.8,
   },
-  updateButton: {
-    backgroundColor: "#000",
-    borderRadius: 8,
-    paddingVertical: 15,
+  avatarWrapper: {
+    width: width * 0.9,
+    maxWidth: 400,
+    borderRadius: 24,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  avatarGradient: {
+    padding: 2,
+    borderRadius: 24,
+  },
+  avatarContainer: {
     alignItems: "center",
-    marginTop: 20,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    backgroundColor: "#ffffff",
+    borderRadius: 22,
   },
-  updateButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "600",
+  infoContainer: {
+    marginTop: 24,
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    padding: 16,
+    borderRadius: 16,
+    width: width * 0.9,
+    maxWidth: 400,
+  },
+  infoText: {
+    fontSize: 15,
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 8,
+    fontWeight: "500",
+  },
+  infoSubtext: {
+    fontSize: 13,
+    color: "#666",
+    textAlign: "center",
   },
 });

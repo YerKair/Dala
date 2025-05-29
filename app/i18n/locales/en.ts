@@ -433,4 +433,10 @@ export default {
   noOrdersYet: "No Orders Yet",
   orderHistoryWillAppearHere:
     "Your order history will appear here once you place orders",
+
+  // Profile Photo
+  profilePhoto: {
+    tapToChange: "Tap on the image to change profile photo",
+    recommendedSize: "Recommended size is 400x400 pixels",
+  },
 };
