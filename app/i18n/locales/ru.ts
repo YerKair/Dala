@@ -440,4 +440,10 @@ export default {
   noOrdersYet: "У вас пока нет заказов",
   orderHistoryWillAppearHere:
     "История ваших заказов появится здесь после оформления",
+
+  // Profile Photo
+  profilePhoto: {
+    tapToChange: "Нажмите на изображение, чтобы изменить фото профиля",
+    recommendedSize: "Рекомендуемый размер 400x400 пикселей",
+  },
 };

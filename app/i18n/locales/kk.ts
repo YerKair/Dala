@@ -336,4 +336,10 @@ export default {
     orderDetails: "Тапсырыс мәліметтері",
     orderNumber: "Тапсырыс №{{id}}",
   },
+
+  // Profile Photo
+  profilePhoto: {
+    tapToChange: "Профиль суретін өзгерту үшін суретті басыңыз",
+    recommendedSize: "Ұсынылатын өлшемі 400x400 пиксель",
+  },
 };
