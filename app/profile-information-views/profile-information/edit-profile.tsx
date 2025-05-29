@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   ScrollView,
   Dimensions,
+  TextInput,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import Svg, { Path } from "react-native-svg";
@@ -14,6 +17,8 @@ import { ImagePickerComponent } from "./ImagePickerComponent";
 import { useTranslation } from "react-i18next";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
+import { useAuth } from "../../auth/AuthContext";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Back icon component
 const BackIcon = () => (
@@ -33,9 +38,95 @@ const { width } = Dimensions.get("window");
 
 export default function EditProfileScreen(): JSX.Element {
   const { t } = useTranslation();
+  const { user, token, updateUser } = useAuth();
+  const [name, setName] = useState<string>(user?.name || "");
+  const [email, setEmail] = useState<string>(user?.email || "");
+  const [phone, setPhone] = useState<string>(user?.phone || "");
+  const [loading, setLoading] = useState<boolean>(false);
 
   const handleBackPress = (): void => {
     router.push("/profile-information-views/profile-information");
+  };
+
+  const handleUpdateProfile = async (): Promise<void> => {
+    // Validate inputs
+    if (!name.trim()) {
+      Alert.alert(t("error"), t("nameRequired"));
+      return;
+    }
+
+    if (!email.trim()) {
+      Alert.alert(t("error"), t("emailRequired"));
+      return;
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      Alert.alert(t("error"), t("invalidEmail"));
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await fetch("http://192.168.0.109:8000/api/profile", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+        }),
+      });
+
+      const responseData = await response.json();
+      console.log("Server response:", responseData); // Для отладки
+
+      // Проверяем статус ответа и наличие ошибок
+      if (response.ok && !responseData.error) {
+        // Получаем обновленные данные пользователя из ответа сервера
+        const updatedUserData = responseData.data ||
+          responseData.user || {
+            ...user!,
+            name: name.trim(),
+            email: email.trim(),
+            phone: phone.trim(),
+          };
+
+        // Обновляем контекст пользователя
+        const updateSuccess = await updateUser(updatedUserData);
+
+        if (updateSuccess) {
+          Alert.alert(t("success"), t("profileUpdatedSuccessfully"), [
+            {
+              text: t("ok"),
+              onPress: () => {
+                router.push("/profile-information-views/profile-information");
+              },
+            },
+          ]);
+        } else {
+          throw new Error("Failed to update local user data");
+        }
+      } else {
+        // Показываем сообщение об ошибке из ответа сервера
+        const errorMessage =
+          responseData.message ||
+          responseData.error ||
+          (responseData.errors && Object.values(responseData.errors)[0]) ||
+          t("failedToUpdateProfile");
+        Alert.alert(t("error"), errorMessage);
+      }
+    } catch (error) {
+      console.error("Profile update error:", error);
+      Alert.alert(t("error"), t("networkError"));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -91,6 +182,66 @@ export default function EditProfileScreen(): JSX.Element {
               <Text style={styles.infoSubtext}>
                 {t("profilePhoto.recommendedSize")}
               </Text>
+            </View>
+
+            {/* Edit form */}
+            <View style={styles.formContainer}>
+              {/* Name */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>{t("name")}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder={t("enterYourName")}
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              {/* Email */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>{t("email")}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder={t("enterYourEmail")}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              {/* Phone */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>{t("phone")}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholder={t("enterYourPhone")}
+                  keyboardType="phone-pad"
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              {/* Update button */}
+              <TouchableOpacity
+                style={[
+                  styles.updateButton,
+                  loading && styles.updateButtonDisabled,
+                ]}
+                onPress={handleUpdateProfile}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text style={styles.updateButtonText}>
+                    {t("updateProfile")}
+                  </Text>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         </ScrollView>
@@ -209,5 +360,55 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#666",
     textAlign: "center",
+  },
+  formContainer: {
+    width: width * 0.9,
+    maxWidth: 400,
+    marginTop: 24,
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    color: "#333",
+    marginBottom: 8,
+    fontWeight: "500",
+  },
+  input: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.1)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  updateButton: {
+    backgroundColor: "#007AFF",
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: 32,
+    shadowColor: "#007AFF",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  updateButtonDisabled: {
+    backgroundColor: "#999",
+    shadowOpacity: 0,
+  },
+  updateButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+    letterSpacing: 0.5,
   },
 });
