@@ -1231,50 +1231,14 @@ export default function CheckoutPage() {
                 <Text style={styles.sectionTitle}>
                   {t("chechout.deliveryAddress")}
                 </Text>
-                <TouchableOpacity
-                  style={styles.savedAddressesButton}
-                  onPress={() => setShowAddressModal(true)}
-                >
-                  <Text style={styles.savedAddressesButtonText}>
-                    {t("chechout.savedAddresses")}
-                  </Text>
-                </TouchableOpacity>
               </View>
-
-              {/* Real location info block */}
-              {userLocationObtained && (
-                <View style={styles.realLocationInfoContainer}>
-                  <View style={styles.realLocationIconContainer}>
-                    <Ionicons name="location" size={20} color="#4A5D23" />
-                  </View>
-                  <View style={styles.realLocationTextContainer}>
-                    <Text style={styles.realLocationTitle}>
-                      Ваше реальное местоположение используется
-                    </Text>
-                    <Text style={styles.realLocationDescription}>
-                      Для точной доставки и отслеживания
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              <TouchableOpacity
-                style={styles.mapSelectionButton}
-                onPress={handleOpenMap}
-              >
-                <MaterialIcons name="map" size={24} color="#4A5D23" />
-                <Text style={styles.mapSelectionText}>
-                  {userLocation
-                    ? "Изменить местоположение на карте"
-                    : "Выбрать местоположение на карте"}
-                </Text>
-              </TouchableOpacity>
 
               <TextInput
                 style={styles.input}
                 placeholder={t("chechout.streetAddress")}
                 value={address.street}
                 onChangeText={(text) => updateAddress("street", text)}
+                placeholderTextColor="#000000"
               />
 
               <TextInput
@@ -1282,6 +1246,7 @@ export default function CheckoutPage() {
                 placeholder={t("chechout.apartment")}
                 value={address.apartment}
                 onChangeText={(text) => updateAddress("apartment", text)}
+                placeholderTextColor="#000000"
               />
 
               <View style={styles.cityPostalRow}>
@@ -1290,6 +1255,7 @@ export default function CheckoutPage() {
                   placeholder={t("chechout.city")}
                   value={address.city}
                   onChangeText={(text) => updateAddress("city", text)}
+                  placeholderTextColor="#000000"
                 />
 
                 <TextInput
@@ -1298,15 +1264,18 @@ export default function CheckoutPage() {
                   value={address.postalCode}
                   onChangeText={(text) => updateAddress("postalCode", text)}
                   keyboardType="number-pad"
+                  placeholderTextColor="#000000"
                 />
               </View>
 
               <TextInput
-                style={styles.input}
+                style={[styles.input, styles.instructionsInput]}
                 placeholder={t("chechout.deliveryInstructions")}
                 value={address.instructions}
                 onChangeText={(text) => updateAddress("instructions", text)}
                 multiline
+                numberOfLines={3}
+                placeholderTextColor="#000000"
               />
 
               <View style={styles.contactlessDeliveryRow}>
@@ -1372,11 +1341,6 @@ export default function CheckoutPage() {
               <Text style={styles.sectionTitle}>
                 {t("chechout.paymentMethod")}
               </Text>
-              <TouchableOpacity style={styles.editButton}>
-                <Text style={styles.editButtonText}>
-                  {t("chechout.addNew")}
-                </Text>
-              </TouchableOpacity>
             </View>
 
             {/* Payment options */}
@@ -1978,20 +1942,16 @@ const styles = StyleSheet.create({
   addNewAddressButton: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     padding: 12,
     marginTop: 8,
-    backgroundColor: "#F9FDF7",
+    backgroundColor: "#F9F9F9",
     borderRadius: 8,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: "#4A5D23",
   },
   addNewAddressText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#4A5D23",
     marginLeft: 8,
+    fontSize: 14,
+    color: "#4A5D23",
+    fontWeight: "500",
   },
   mapModalContainer: {
     flex: 1,
@@ -2191,5 +2151,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#FFFFFF",
     fontWeight: "600",
+  },
+  instructionsInput: {
+    height: 100,
+    textAlignVertical: "top",
+    paddingTop: 12,
   },
 });

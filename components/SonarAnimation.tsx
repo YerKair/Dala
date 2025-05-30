@@ -40,10 +40,42 @@ const SonarAnimation: React.FC<SonarAnimationProps> = ({
   // Determine whether to use props or state
   const isSearching =
     isSearchingProp !== undefined ? isSearchingProp : isSearchingState;
-  const searchTimeSeconds =
-    searchTimeSecondsProp !== undefined
-      ? searchTimeSecondsProp
-      : searchTimeSecondsState;
+
+  // Effect to handle the timer
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    if (isSearching) {
+      // Reset timer when search starts
+      setSearchTimeSecondsState(0);
+
+      // Start the timer
+      interval = setInterval(() => {
+        setSearchTimeSecondsState((prev) => prev + 1);
+      }, 1000);
+    } else {
+      // Reset timer when search stops
+      setSearchTimeSecondsState(0);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isSearching]);
+
+  // Use internal timer state
+  const displayTime = searchTimeSecondsState;
+
+  // Format search time
+  const formatSearchTime = () => {
+    const minutes = Math.floor(displayTime / 60);
+    const seconds = displayTime % 60;
+    return `${minutes.toString().padStart(2, "0")}:${seconds
+      .toString()
+      .padStart(2, "0")}`;
+  };
 
   // Refs for the animated values
   const circle1 = useRef(new Animated.Value(0)).current;
@@ -51,8 +83,8 @@ const SonarAnimation: React.FC<SonarAnimationProps> = ({
   const circle3 = useRef(new Animated.Value(0)).current;
 
   // Create refs for intervals so we can clear them later
-  const statusIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const timeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const statusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const animationRunningRef = useRef<boolean>(true);
 
   // Function to check order status
@@ -114,22 +146,6 @@ const SonarAnimation: React.FC<SonarAnimationProps> = ({
     };
   }, [requestId, driverId]);
 
-  // Effect to keep track of search time - only if we're managing our own state
-  useEffect(() => {
-    // Only use this effect if we're not provided with searchTimeSeconds from props
-    if (isSearching && searchTimeSecondsProp === undefined) {
-      timeIntervalRef.current = setInterval(() => {
-        setSearchTimeSecondsState((prev) => prev + 1);
-      }, 1000);
-    }
-
-    return () => {
-      if (timeIntervalRef.current) {
-        clearInterval(timeIntervalRef.current);
-      }
-    };
-  }, [isSearching, searchTimeSecondsProp]);
-
   // Animation sequence for the circles
   const animateCircle = (animated: Animated.Value) => {
     if (!animationRunningRef.current) return;
@@ -185,15 +201,6 @@ const SonarAnimation: React.FC<SonarAnimationProps> = ({
       };
     }
   }, [isSearching]);
-
-  // Format search time
-  const formatSearchTime = () => {
-    const minutes = Math.floor(searchTimeSeconds / 60);
-    const seconds = searchTimeSeconds % 60;
-    return `${minutes.toString().padStart(2, "0")}:${seconds
-      .toString()
-      .padStart(2, "0")}`;
-  };
 
   // Interpolate circle scales
   const circle1Scale = circle1.interpolate({
@@ -260,14 +267,16 @@ const SonarAnimation: React.FC<SonarAnimationProps> = ({
               ]}
             />
           </View>
-          <View style={styles.textContainer}>
-            <Text style={styles.searchingText}>Ищем водителя</Text>
-            <Text style={styles.timeText}>{formatSearchTime()}</Text>
+          <View style={styles.contentContainer}>
+            <FontAwesome name="car" size={24} color="#4A5D23" />
+            <Text style={styles.searchingText}>Searching for driver...</Text>
+            <Text style={styles.timerText}>{formatSearchTime()}</Text>
           </View>
         </>
       ) : (
-        <View style={styles.textContainer}>
-          <Text style={styles.searchingText}>Поиск завершен</Text>
+        <View style={styles.contentContainer}>
+          <FontAwesome name="check-circle" size={24} color="#4A5D23" />
+          <Text style={styles.searchingText}>Driver found!</Text>
         </View>
       )}
     </View>
@@ -278,35 +287,37 @@ const styles = StyleSheet.create({
   container: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 20,
+    padding: 20,
   },
   circlesContainer: {
     width: 200,
     height: 200,
     alignItems: "center",
     justifyContent: "center",
-    position: "relative",
   },
   circle: {
     position: "absolute",
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: "#3498db",
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "#4A5D23",
   },
-  textContainer: {
-    marginTop: 20,
+  contentContainer: {
     alignItems: "center",
+    justifyContent: "center",
+    marginTop: 20,
   },
   searchingText: {
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: 16,
     color: "#333",
+    marginTop: 10,
     marginBottom: 5,
   },
-  timeText: {
-    fontSize: 16,
-    color: "#666",
+  timerText: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#4A5D23",
+    marginTop: 5,
   },
 });
 

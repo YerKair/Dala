@@ -316,6 +316,9 @@ export default {
       loadingProducts: "Загрузка товаров...",
       failedToLoad: "Не удалось загрузить товары",
       retryLoading: "Повторить",
+      new: "Новое",
+      used: "Б/у",
+      damaged: "Повреждённое",
     },
     conditions: {
       new: "Новое",
@@ -401,6 +404,9 @@ export default {
     addNewAddress: "Добавить новый адрес",
     failedToLoad:
       "Не удалось загрузить данные. Пожалуйста, попробуйте еще раз.",
+    checkout: "Оформление заказа",
+    pickup: "Самовывоз",
+    savedAddresses: "Сохраненные адреса",
   },
 
   // Payment Methods

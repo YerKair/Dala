@@ -274,6 +274,9 @@ export default {
       loadingProducts: "Тауарлар жүктелуде...",
       failedToLoad: "Тауарларды жүктеу сәтсіз аяқталды",
       retryLoading: "Қайталау",
+      new: "Жаңа",
+      used: "Қолданылған",
+      damaged: "Зақымдалған",
     },
     conditions: {
       new: "Жаңа",
@@ -357,6 +360,9 @@ export default {
     addressSelectionTitle: "Жеткізу мекенжайын таңдаңыз",
     addNewAddress: "Жаңа мекенжай қосу",
     failedToLoad: "Деректерді жүктеу мүмкін болмады. Қайталап көріңіз.",
+    checkout: "Тапсырысты рәсімдеу",
+    pickup: "Өзі алып кету",
+    savedAddresses: "Сақталған мекенжайлар",
   },
 
   // Delivery Tracking
