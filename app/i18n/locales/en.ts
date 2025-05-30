@@ -383,6 +383,9 @@ export default {
       loadingProducts: "Loading products...",
       failedToLoad: "Failed to load products",
       retryLoading: "Retry",
+      new: "New",
+      used: "Used",
+      damaged: "Damaged",
     },
     conditions: {
       new: "New",
@@ -420,16 +423,18 @@ export default {
 
   // Checkout Page
   chechout: {
+    checkout: "Checkout",
+    delivery: "Delivery",
+    pickup: "Pickup",
+    savedAddresses: "Saved Addresses",
+    deliveryAddress: "Delivery Address",
     authRequired: "Authentication Required",
     pleaseLogin: "Please log in to proceed with checkout",
     loading: "Loading checkout data...",
     title: "Checkout",
     deliveryMethod: "Delivery Method",
-    delivery: "Delivery",
-    pickupPoint: "Choose Pickup Point",
     noPickupPoints:
       "No pickup points available. Please choose delivery instead.",
-    deliveryAddress: "Delivery Address",
     selectSaved: "Select Saved",
     change: "Change",
     note: "Note",

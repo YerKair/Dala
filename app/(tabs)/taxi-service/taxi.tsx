@@ -190,6 +190,47 @@ export default function TaxiOrderScreen() {
     useState<boolean>(true);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
 
+  // Add timer effect
+  useEffect(() => {
+    let interval: number;
+
+    if (isSearchingDriver) {
+      interval = setInterval(() => {
+        setSearchTimeSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setSearchTimeSeconds(0);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isSearchingDriver]);
+
+  // Effect to check for active trip
+  useEffect(() => {
+    if (globalState.activeTaxiTrip && globalState.tripData.isActive) {
+      // If we have an active trip and a driver is assigned, stop searching
+      if (
+        globalState.tripData.driverId &&
+        globalState.tripData.driverId !== "pending_driver"
+      ) {
+        setIsSearchingDriver(false);
+      }
+    }
+  }, [globalState.activeTaxiTrip, globalState.tripData]);
+
+  // Add cleanup effect for search timer
+  useEffect(() => {
+    return () => {
+      // Reset search state when component unmounts
+      setIsSearchingDriver(false);
+      setSearchTimeSeconds(0);
+    };
+  }, []);
+
   // Function to check and restore trip state
   const checkAndRestoreTrip = async () => {
     if (!user || !user.id) return;
@@ -371,9 +412,11 @@ export default function TaxiOrderScreen() {
       // Use the TaxiService to get pending trips from the API
       const requests = await TaxiService.getPendingTrips();
       setPendingOrders(requests);
+      setIsSearchingDriver(requests.length === 0); // Set searching state based on pending orders
     } catch (error) {
       console.error("Error fetching pending requests:", error);
       setPendingOrders([]);
+      setIsSearchingDriver(true); // Set to true when there's an error to continue showing animation
     } finally {
       setRefreshing(false);
     }
@@ -1039,7 +1082,7 @@ export default function TaxiOrderScreen() {
           <Text style={styles.emptyText}>
             {t("taxi.trip.waitingForRequests")}
           </Text>
-          <SonarAnimation />
+          <SonarAnimation isSearching={isSearchingDriver} />
         </View>
       )}
     </View>
@@ -1115,6 +1158,8 @@ export default function TaxiOrderScreen() {
     if (!destinationAddress) return;
 
     setIsLoading(true);
+    setIsSearchingDriver(true); // Start searching
+    setSearchTimeSeconds(0); // Reset timer
 
     try {
       // Save coordinates in global state

@@ -212,7 +212,12 @@ export default function CategoryPage() {
             ) {
               if (
                 conditionFilter === t("marketplace.categoryPage.all") ||
-                product.condition === conditionFilter
+                (conditionFilter === t("marketplace.categoryPage.new") &&
+                  product.condition === t("marketplace.conditions.new")) ||
+                (conditionFilter === t("marketplace.categoryPage.used") &&
+                  product.condition === t("marketplace.conditions.used")) ||
+                (conditionFilter === t("marketplace.categoryPage.damaged") &&
+                  product.condition === t("marketplace.conditions.damaged"))
               ) {
                 return true;
               }
@@ -271,7 +276,12 @@ export default function CategoryPage() {
           ) {
             if (
               conditionFilter === t("marketplace.categoryPage.all") ||
-              product.condition === conditionFilter
+              (conditionFilter === t("marketplace.categoryPage.new") &&
+                product.condition === t("marketplace.conditions.new")) ||
+              (conditionFilter === t("marketplace.categoryPage.used") &&
+                product.condition === t("marketplace.conditions.used")) ||
+              (conditionFilter === t("marketplace.categoryPage.damaged") &&
+                product.condition === t("marketplace.conditions.damaged"))
             ) {
               return true;
             }
